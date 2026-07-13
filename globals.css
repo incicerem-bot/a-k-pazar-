@@ -37,12 +37,31 @@ type Screen =
   | "trustCenter"
   | "following"
   | "reminders"
-  | "coupons";
+  | "coupons"
+  | "auctionResults"
+  | "disputes"
+  | "reviews";
 type Condition = "Sıfır" | "Çok iyi" | "İyi" | "Orta";
 type PaymentStatus = "pending" | "held" | "released" | "refunded";
 type ShipmentStatus =
   "waiting" | "prepared" | "shipped" | "delivered" | "approved" | "disputed";
 type ModerationStatus = "pending" | "approved" | "rejected";
+type DisputeStatus =
+  | "open"
+  | "reviewing"
+  | "resolved_buyer"
+  | "resolved_seller";
+
+type Dispute = {
+  id: string;
+  orderId: string;
+  openedBy: string;
+  reason: string;
+  details: string;
+  status: DisputeStatus;
+  createdAt: string;
+  updatedAt: string;
+};
 
 type AutoBid = {
   auctionId: string;
@@ -109,6 +128,7 @@ type Order = {
 
 type Review = {
   id: string;
+  orderId?: string;
   sellerId: string;
   reviewer: string;
   rating: number;
@@ -180,6 +200,9 @@ type StoredState = {
   followedSellers: string[];
   reminders: AuctionReminder[];
   coupons: Coupon[];
+  reviews: Review[];
+  disputes: Dispute[];
+  finalizedAuctionIds: string[];
 };
 
 type AppUser = {
@@ -663,6 +686,22 @@ const seedCoupons: Coupon[] = [
   },
 ];
 
+const seedDisputes: Dispute[] = [
+  {
+    id: "dispute-1",
+    orderId: "order-2",
+    openedBy: "user-z",
+    reason: "Kargo süresi aşıldı",
+    details:
+      "Satıcı kargo hazırlama süresini geçti. Alıcı, güncel gönderim tarihi için inceleme talep etti.",
+    status: "reviewing",
+    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 3).toISOString(),
+    updatedAt: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
+  },
+];
+
+const seedFinalizedAuctionIds = ["7", "8"];
+
 const seedMessages: ChatMessage[] = [
   {
     id: "m1",
@@ -745,9 +784,13 @@ function safeRead(): StoredState {
     followedSellers: seedFollowedSellers,
     reminders: seedReminders,
     coupons: seedCoupons,
+    reviews: seedReviews,
+    disputes: seedDisputes,
+    finalizedAuctionIds: seedFinalizedAuctionIds,
   };
   if (typeof window === "undefined") return defaults;
   const raw =
+    window.localStorage.getItem("acikpazar-v9") ||
     window.localStorage.getItem("acikpazar-v8") ||
     window.localStorage.getItem("acikpazar-v7") ||
     window.localStorage.getItem("acikpazar-v6") ||
@@ -788,10 +831,18 @@ function safeRead(): StoredState {
         ? parsed.reminders
         : seedReminders,
       coupons: Array.isArray(parsed.coupons) ? parsed.coupons : seedCoupons,
+      reviews: Array.isArray(parsed.reviews) ? parsed.reviews : seedReviews,
+      disputes: Array.isArray(parsed.disputes)
+        ? parsed.disputes
+        : seedDisputes,
+      finalizedAuctionIds: Array.isArray(parsed.finalizedAuctionIds)
+        ? parsed.finalizedAuctionIds
+        : seedFinalizedAuctionIds,
     };
   } catch {
     [
-      "acikpazar-v8",
+      "acikpazar-v9",
+      "acikpazar-v9",
       "acikpazar-v7",
       "acikpazar-v6",
       "acikpazar-v5",
@@ -814,8 +865,8 @@ function initialsFromName(name: string) {
   );
 }
 
-function sellerScore(sellerId: string) {
-  const sellerReviews = seedReviews.filter(
+function sellerScore(sellerId: string, reviews: Review[] = seedReviews) {
+  const sellerReviews = reviews.filter(
     (review) => review.sellerId === sellerId,
   );
   if (!sellerReviews.length) return { rating: 4.7, count: 9, sales: 14 };
@@ -870,6 +921,11 @@ export default function Home() {
     useState<string[]>(seedFollowedSellers);
   const [reminders, setReminders] = useState<AuctionReminder[]>(seedReminders);
   const [coupons, setCoupons] = useState<Coupon[]>(seedCoupons);
+  const [reviews, setReviews] = useState<Review[]>(seedReviews);
+  const [disputes, setDisputes] = useState<Dispute[]>(seedDisputes);
+  const [finalizedAuctionIds, setFinalizedAuctionIds] = useState<string[]>(
+    seedFinalizedAuctionIds,
+  );
   const [selectedOrderId, setSelectedOrderId] = useState("");
   const [selectedConversationId, setSelectedConversationId] = useState("");
   const [selectedId, setSelectedId] = useState(liveMode ? "" : "1");
@@ -1047,6 +1103,9 @@ export default function Home() {
       setFollowedSellers(stored.followedSellers);
       setReminders(stored.reminders);
       setCoupons(stored.coupons);
+      setReviews(stored.reviews);
+      setDisputes(stored.disputes);
+      setFinalizedAuctionIds(stored.finalizedAuctionIds);
       setHydrated(true);
       return () => window.clearInterval(interval);
     }
@@ -1119,6 +1178,9 @@ export default function Home() {
         followedSellers,
         reminders,
         coupons,
+        reviews,
+        disputes,
+        finalizedAuctionIds,
       }),
     );
   }, [
@@ -1134,6 +1196,9 @@ export default function Home() {
     followedSellers,
     reminders,
     coupons,
+    reviews,
+    disputes,
+    finalizedAuctionIds,
     hydrated,
     supabase,
   ]);
@@ -1202,6 +1267,94 @@ export default function Home() {
       );
     });
   }, [auctions, hydrated, now, reminders]);
+
+  useEffect(() => {
+    if (!hydrated || supabase) return;
+    const newlyEnded = auctions.filter(
+      (auction) =>
+        isEnded(auction, now) && !finalizedAuctionIds.includes(auction.id),
+    );
+    if (!newlyEnded.length) return;
+
+    const createdOrders: Order[] = [];
+    const createdNotices: Notice[] = [];
+    newlyEnded.forEach((auction) => {
+      const topBid = bids
+        .filter((bid) => bid.auctionId === auction.id)
+        .sort((a, b) => b.amount - a.amount)[0];
+      const reserveMet = Boolean(
+        topBid && topBid.amount >= auction.reservePrice,
+      );
+
+      if (reserveMet && topBid) {
+        if (!orders.some((order) => order.auctionId === auction.id)) {
+          createdOrders.push({
+            id: `order-${auction.id}-${Date.now()}`,
+            auctionId: auction.id,
+            buyerId: topBid.userId,
+            sellerId: auction.sellerId,
+            amount: topBid.amount,
+            paymentStatus: "pending",
+            shipmentStatus: "waiting",
+            carrier: "AçıkPazar Anlaşmalı Kargo",
+            updatedAt: new Date().toISOString(),
+          });
+        }
+        if (topBid.userId === currentUser.id) {
+          createdNotices.push({
+            id: `winner-${auction.id}-${Date.now()}`,
+            title: "Açık artırmayı kazandın",
+            text: `${auction.title} için ödeme süreci başladı.`,
+            createdAt: new Date().toISOString(),
+            read: false,
+            auctionId: auction.id,
+          });
+        } else if (auction.sellerId === currentUser.id) {
+          createdNotices.push({
+            id: `sold-${auction.id}-${Date.now()}`,
+            title: "İlanın satıldı",
+            text: `${auction.title} ${money.format(topBid.amount)} ile tamamlandı.`,
+            createdAt: new Date().toISOString(),
+            read: false,
+            auctionId: auction.id,
+          });
+        }
+      } else if (auction.sellerId === currentUser.id) {
+        createdNotices.push({
+          id: `reserve-${auction.id}-${Date.now()}`,
+          title: "Taban fiyat karşılanmadı",
+          text: `${auction.title} satılmadan sona erdi.`,
+          createdAt: new Date().toISOString(),
+          read: false,
+          auctionId: auction.id,
+        });
+      }
+    });
+
+    if (createdOrders.length)
+      setOrders((items) => [...createdOrders, ...items]);
+    if (createdNotices.length)
+      setNotices((items) => [...createdNotices, ...items]);
+    setAutoBids((items) =>
+      items.map((item) =>
+        newlyEnded.some((auction) => auction.id === item.auctionId)
+          ? { ...item, active: false }
+          : item,
+      ),
+    );
+    setFinalizedAuctionIds((items) => [
+      ...new Set([...items, ...newlyEnded.map((auction) => auction.id)]),
+    ]);
+  }, [
+    auctions,
+    bids,
+    currentUser.id,
+    finalizedAuctionIds,
+    hydrated,
+    now,
+    orders,
+    supabase,
+  ]);
 
   const categories = ["Tümü", "Telefon", "Bilgisayar", "Oyun", "Ev & Yaşam"];
   const cities = useMemo(
@@ -1279,6 +1432,16 @@ export default function Home() {
     orders.find((order) => order.id === selectedOrderId) ?? orders[0];
   const unreadMessages = messages.filter(
     (message) => !message.read && message.senderId !== currentUser.id,
+  ).length;
+  const activeDisputeCount = disputes.filter(
+    (item) => item.status === "open" || item.status === "reviewing",
+  ).length;
+  const reviewableCount = orders.filter(
+    (order) =>
+      order.buyerId === currentUser.id &&
+      (order.paymentStatus === "released" ||
+        order.shipmentStatus === "approved") &&
+      !reviews.some((review) => review.orderId === order.id),
   ).length;
 
   function navigate(next: Screen) {
@@ -1923,6 +2086,154 @@ export default function Home() {
     if (notice.auctionId) openAuction(notice.auctionId);
   }
 
+  function openDispute(orderId: string, reason: string, details: string) {
+    const order = orders.find((item) => item.id === orderId);
+    if (!order) return;
+    if (disputes.some((item) => item.orderId === orderId && (item.status === "open" || item.status === "reviewing"))) {
+      setToast("Bu sipariş için zaten açık bir itiraz bulunuyor.");
+      return;
+    }
+    if (!reason || details.trim().length < 10) {
+      setToast("İtiraz nedeni ve en az 10 karakter açıklama gir.");
+      return;
+    }
+    const dispute: Dispute = {
+      id: `dispute-${Date.now()}`,
+      orderId,
+      openedBy: currentUser.id,
+      reason,
+      details: details.trim(),
+      status: "open",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    setDisputes((items) => [dispute, ...items]);
+    setOrders((items) =>
+      items.map((item) =>
+        item.id === orderId
+          ? { ...item, shipmentStatus: "disputed", updatedAt: new Date().toISOString() }
+          : item,
+      ),
+    );
+    addNotice(
+      "İtiraz kaydı oluşturuldu",
+      `${reason} başlığıyla güvenli işlem incelemesi başladı.`,
+      order.auctionId,
+    );
+    setToast("İtirazın incelemeye alındı.");
+  }
+
+  function resolveDispute(id: string, result: "buyer" | "seller" | "reviewing") {
+    const dispute = disputes.find((item) => item.id === id);
+    if (!dispute) return;
+    const order = orders.find((item) => item.id === dispute.orderId);
+    if (!order) return;
+    const status: DisputeStatus =
+      result === "reviewing"
+        ? "reviewing"
+        : result === "buyer"
+          ? "resolved_buyer"
+          : "resolved_seller";
+    setDisputes((items) =>
+      items.map((item) =>
+        item.id === id
+          ? { ...item, status, updatedAt: new Date().toISOString() }
+          : item,
+      ),
+    );
+    if (result === "buyer") {
+      setOrders((items) =>
+        items.map((item) =>
+          item.id === order.id
+            ? { ...item, paymentStatus: "refunded", updatedAt: new Date().toISOString() }
+            : item,
+        ),
+      );
+      if (order.buyerId === currentUser.id) {
+        setWalletBalance((value) => value + order.amount);
+        setWalletTransactions((items) => [
+          {
+            id: `refund-${Date.now()}`,
+            type: "refund",
+            title: "İtiraz sonucu ödeme iadesi",
+            amount: order.amount,
+            createdAt: new Date().toISOString(),
+            status: "completed",
+            orderId: order.id,
+          },
+          ...items,
+        ]);
+      }
+    } else if (result === "seller") {
+      setOrders((items) =>
+        items.map((item) =>
+          item.id === order.id
+            ? {
+                ...item,
+                paymentStatus: "released",
+                shipmentStatus: "approved",
+                updatedAt: new Date().toISOString(),
+              }
+            : item,
+        ),
+      );
+      if (order.sellerId === currentUser.id) {
+        const net = Math.round(order.amount * 0.925);
+        setWalletBalance((value) => value + net);
+        setWalletTransactions((items) => [
+          {
+            id: `sale-${Date.now()}`,
+            type: "sale",
+            title: "İtiraz sonrası satış geliri",
+            amount: net,
+            createdAt: new Date().toISOString(),
+            status: "completed",
+            orderId: order.id,
+          },
+          ...items,
+        ]);
+      }
+    }
+    setToast(
+      result === "reviewing"
+        ? "İtiraz uzman incelemesine alındı."
+        : "İtiraz sonuçlandırıldı.",
+    );
+  }
+
+  function submitReview(orderId: string, rating: number, text: string) {
+    const order = orders.find((item) => item.id === orderId);
+    const auction = auctions.find((item) => item.id === order?.auctionId);
+    if (!order || !auction) return;
+    if (order.buyerId !== currentUser.id)
+      return setToast("Bu işlemi yalnızca alıcı değerlendirebilir.");
+    if (order.paymentStatus !== "released" && order.shipmentStatus !== "approved")
+      return setToast("Değerlendirme için siparişin tamamlanması gerekiyor.");
+    if (reviews.some((review) => review.orderId === orderId))
+      return setToast("Bu işlem daha önce değerlendirildi.");
+    if (rating < 1 || rating > 5 || text.trim().length < 5)
+      return setToast("Puan seç ve en az 5 karakter yorum yaz.");
+    setReviews((items) => [
+      {
+        id: `review-${Date.now()}`,
+        orderId,
+        sellerId: order.sellerId,
+        reviewer: currentUser.name,
+        rating,
+        text: text.trim(),
+        product: auction.title,
+        createdAt: new Date().toISOString(),
+      },
+      ...items,
+    ]);
+    addNotice(
+      "Değerlendirmen yayınlandı",
+      `${auction.title} işlemi için ${rating} yıldız verdin.`,
+      auction.id,
+    );
+    setToast("Değerlendirmen satıcı profiline eklendi.");
+  }
+
   function resetDemo() {
     if (supabase) return;
     setAuctions(seedAuctions);
@@ -1937,6 +2248,10 @@ export default function Home() {
     setFollowedSellers(seedFollowedSellers);
     setReminders(seedReminders);
     setCoupons(seedCoupons);
+    setReviews(seedReviews);
+    setDisputes(seedDisputes);
+    setFinalizedAuctionIds(seedFinalizedAuctionIds);
+    window.localStorage.removeItem("acikpazar-v9");
     window.localStorage.removeItem("acikpazar-v8");
     window.localStorage.removeItem("acikpazar-v7");
     window.localStorage.removeItem("acikpazar-v6");
@@ -1969,6 +2284,9 @@ export default function Home() {
     setFollowedSellers([]);
     setReminders([]);
     setCoupons([]);
+    setReviews([]);
+    setDisputes([]);
+    setFinalizedAuctionIds([]);
     setCurrentUser(DEMO_USER);
     navigate("home");
   }
@@ -2043,7 +2361,7 @@ export default function Home() {
           </button>
           <div className="topbar-actions">
             <span className={liveMode ? "demo-pill live" : "demo-pill"}>
-              ● {liveMode ? "SUPABASE CANLI" : "DEMO 8"}
+              ● {liveMode ? "SUPABASE CANLI" : "DEMO 9"}
             </span>
             <button
               className="icon-button"
@@ -2284,6 +2602,8 @@ export default function Home() {
               (item) => !item.used && new Date(item.expiresAt).getTime() > now,
             ).length
           }
+          disputeCount={activeDisputeCount}
+          reviewableCount={reviewableCount}
           onWallet={() => navigate("wallet")}
           onVerification={() => navigate("verification")}
           onTrustCenter={() => navigate("trustCenter")}
@@ -2295,6 +2615,9 @@ export default function Home() {
           onFollowing={() => navigate("following")}
           onReminders={() => navigate("reminders")}
           onCoupons={() => navigate("coupons")}
+          onAuctionResults={() => navigate("auctionResults")}
+          onDisputes={() => navigate("disputes")}
+          onReviews={() => navigate("reviews")}
           onSecurity={() => navigate("security")}
           onSupport={() => navigate("support")}
           showAdmin={canAccessAdmin}
@@ -2347,6 +2670,7 @@ export default function Home() {
           followed={followedSellers.includes(
             selectedSellerId || selected?.sellerId || "",
           )}
+          reviews={reviews}
           onFollow={toggleFollowSeller}
           onOpen={openAuction}
         />
@@ -2406,6 +2730,7 @@ export default function Home() {
           onMessage={(auctionId, participantId) =>
             openMessages(auctionId, participantId)
           }
+          onDispute={() => navigate("disputes")}
         />
       )}
       {screen === "notifications" && (
@@ -2450,6 +2775,41 @@ export default function Home() {
         />
       )}
       {screen === "coupons" && <CouponsScreen coupons={coupons} now={now} />}
+      {screen === "auctionResults" && (
+        <AuctionResultsScreen
+          auctions={auctions}
+          bids={bids}
+          orders={orders}
+          currentUser={currentUser}
+          now={now}
+          onOpen={openAuction}
+          onOrder={(id) => {
+            setSelectedOrderId(id);
+            navigate("shipment");
+          }}
+        />
+      )}
+      {screen === "disputes" && (
+        <DisputesCenter
+          disputes={disputes}
+          orders={orders}
+          auctions={auctions}
+          currentUser={currentUser}
+          selectedOrderId={selectedOrderId}
+          liveMode={liveMode}
+          onCreate={openDispute}
+          onResolve={resolveDispute}
+        />
+      )}
+      {screen === "reviews" && (
+        <ReviewsCenter
+          reviews={reviews}
+          orders={orders}
+          auctions={auctions}
+          currentUser={currentUser}
+          onSubmit={submitReview}
+        />
+      )}
 
       {screen === "detail" && selected && (
         <AuctionDetail
@@ -2506,7 +2866,10 @@ export default function Home() {
         screen !== "trustCenter" &&
         screen !== "following" &&
         screen !== "reminders" &&
-        screen !== "coupons" && (
+        screen !== "coupons" &&
+        screen !== "auctionResults" &&
+        screen !== "disputes" &&
+        screen !== "reviews" && (
           <nav className="bottom-nav">
             <NavButton
               icon="⌂"
@@ -2554,7 +2917,10 @@ export default function Home() {
         screen === "trustCenter" ||
         screen === "following" ||
         screen === "reminders" ||
-        screen === "coupons") && (
+        screen === "coupons" ||
+        screen === "auctionResults" ||
+        screen === "disputes" ||
+        screen === "reviews") && (
         <button
           className="floating-back"
           onClick={() =>
@@ -3737,6 +4103,8 @@ function Profile({
   followedCount,
   reminderCount,
   couponCount,
+  disputeCount,
+  reviewableCount,
   onWallet,
   onVerification,
   onTrustCenter,
@@ -3748,6 +4116,9 @@ function Profile({
   onFollowing,
   onReminders,
   onCoupons,
+  onAuctionResults,
+  onDisputes,
+  onReviews,
   onSecurity,
   onSupport,
   showAdmin,
@@ -3763,6 +4134,8 @@ function Profile({
   followedCount: number;
   reminderCount: number;
   couponCount: number;
+  disputeCount: number;
+  reviewableCount: number;
   onWallet: () => void;
   onVerification: () => void;
   onTrustCenter: () => void;
@@ -3774,6 +4147,9 @@ function Profile({
   onFollowing: () => void;
   onReminders: () => void;
   onCoupons: () => void;
+  onAuctionResults: () => void;
+  onDisputes: () => void;
+  onReviews: () => void;
   onSecurity: () => void;
   onSupport: () => void;
   showAdmin: boolean;
@@ -3859,6 +4235,23 @@ function Profile({
           <span>🎟️</span>Kuponlarım
           {couponCount > 0 && (
             <em className="menu-badge neutral">{couponCount}</em>
+          )}
+          <b>›</b>
+        </button>
+        <button onClick={onAuctionResults}>
+          <span>🏁</span>Açık artırma sonuçları<b>›</b>
+        </button>
+        <button onClick={onDisputes}>
+          <span>⚖️</span>İtiraz ve iadeler
+          {disputeCount > 0 && (
+            <em className="menu-badge">{disputeCount}</em>
+          )}
+          <b>›</b>
+        </button>
+        <button onClick={onReviews}>
+          <span>⭐</span>Değerlendirmelerim
+          {reviewableCount > 0 && (
+            <em className="menu-badge neutral">{reviewableCount}</em>
           )}
           <b>›</b>
         </button>
@@ -4412,12 +4805,14 @@ function ShipmentScreen({
   currentUser,
   onAdvance,
   onMessage,
+  onDispute,
 }: {
   order: Order;
   auction?: Auction;
   currentUser: AppUser;
   onAdvance: () => void;
   onMessage: (auctionId: string, participantId: string) => void;
+  onDispute: () => void;
 }) {
   const progress = orderProgress(order);
   const isBuyer = order.buyerId === currentUser.id;
@@ -4506,7 +4901,7 @@ function ShipmentScreen({
               {action}
             </button>
           )}
-          <button className="dispute-button">Sorun bildir / itiraz aç</button>
+          <button className="dispute-button" onClick={onDispute}>Sorun bildir / itiraz aç</button>
         </aside>
       </div>
     </section>
@@ -5304,6 +5699,7 @@ function SellerProfile({
   auctions,
   now,
   followed,
+  reviews,
   onFollow,
   onOpen,
 }: {
@@ -5311,6 +5707,7 @@ function SellerProfile({
   auctions: Auction[];
   now: number;
   followed: boolean;
+  reviews: Review[];
   onFollow: (sellerId: string, sellerName: string) => void;
   onOpen: (id: string) => void;
 }) {
@@ -5318,8 +5715,10 @@ function SellerProfile({
     (auction) => auction.sellerId === sellerId,
   );
   const seller = sellerAuctions[0];
-  const reviews = seedReviews.filter((review) => review.sellerId === sellerId);
-  const score = sellerScore(sellerId);
+  const sellerReviews = reviews.filter(
+    (review) => review.sellerId === sellerId,
+  );
+  const score = sellerScore(sellerId, reviews);
   const sellerName = seller?.seller || "AçıkPazar Satıcısı";
   const sellerCity = seller?.city || "Türkiye";
   return (
@@ -5386,8 +5785,8 @@ function SellerProfile({
         <span>★ {score.rating.toFixed(1)}</span>
       </div>
       <div className="review-list">
-        {reviews.length ? (
-          reviews.map((review) => (
+        {sellerReviews.length ? (
+          sellerReviews.map((review) => (
             <article key={review.id}>
               <div>
                 <span className="review-avatar">
@@ -5561,6 +5960,375 @@ function AdminPanel({
             </p>
           </div>
         </aside>
+      </div>
+    </section>
+  );
+}
+
+function AuctionResultsScreen({
+  auctions,
+  bids,
+  orders,
+  currentUser,
+  now,
+  onOpen,
+  onOrder,
+}: {
+  auctions: Auction[];
+  bids: Bid[];
+  orders: Order[];
+  currentUser: AppUser;
+  now: number;
+  onOpen: (id: string) => void;
+  onOrder: (id: string) => void;
+}) {
+  const ended = auctions
+    .filter((auction) => isEnded(auction, now))
+    .sort(
+      (a, b) =>
+        new Date(b.endsAt).getTime() - new Date(a.endsAt).getTime(),
+    );
+  return (
+    <section className="page standalone-page">
+      <ScreenTitle
+        title="Açık artırma sonuçları"
+        text="Kazanan, taban fiyat ve işlem başlangıcını tek ekranda gör"
+      />
+      <div className="result-summary-grid">
+        <article>
+          <span>Tamamlanan</span>
+          <strong>{ended.length}</strong>
+          <small>Açık artırma</small>
+        </article>
+        <article>
+          <span>Kazandıkların</span>
+          <strong>
+            {
+              ended.filter((auction) => {
+                const top = bids
+                  .filter((bid) => bid.auctionId === auction.id)
+                  .sort((a, b) => b.amount - a.amount)[0];
+                return top?.userId === currentUser.id;
+              }).length
+            }
+          </strong>
+          <small>Ödeme bekleyen dahil</small>
+        </article>
+        <article>
+          <span>Satılan ilanların</span>
+          <strong>
+            {
+              ended.filter(
+                (auction) =>
+                  auction.sellerId === currentUser.id &&
+                  bids
+                    .filter((bid) => bid.auctionId === auction.id)
+                    .some((bid) => bid.amount >= auction.reservePrice),
+              ).length
+            }
+          </strong>
+          <small>Taban fiyat karşılandı</small>
+        </article>
+      </div>
+      <div className="auction-result-list">
+        {ended.map((auction) => {
+          const topBid = bids
+            .filter((bid) => bid.auctionId === auction.id)
+            .sort((a, b) => b.amount - a.amount)[0];
+          const reserveMet = Boolean(
+            topBid && topBid.amount >= auction.reservePrice,
+          );
+          const order = orders.find((item) => item.auctionId === auction.id);
+          const userWon = topBid?.userId === currentUser.id;
+          const userSold = auction.sellerId === currentUser.id && reserveMet;
+          return (
+            <article key={auction.id}>
+              <button className="result-product" onClick={() => onOpen(auction.id)}>
+                <img src={auction.image} alt="" />
+                <div>
+                  <span>
+                    {reserveMet
+                      ? userWon
+                        ? "KAZANDIN"
+                        : userSold
+                          ? "SATILDI"
+                          : "SONUÇLANDI"
+                      : "TABAN FİYAT KARŞILANMADI"}
+                  </span>
+                  <strong>{auction.title}</strong>
+                  <small>
+                    {topBid
+                      ? `${topBid.userName} · ${money.format(topBid.amount)}`
+                      : "Teklif verilmedi"}
+                  </small>
+                </div>
+                <b className={reserveMet ? "success" : "warning"}>
+                  {reserveMet ? "Satış oluştu" : "Satış yok"}
+                </b>
+              </button>
+              <div className="result-meta">
+                <span>Başlangıç {money.format(auction.startingBid)}</span>
+                <span>Taban {money.format(auction.reservePrice)}</span>
+                <span>{auction.bidCount} teklif</span>
+                {order && (
+                  <button onClick={() => onOrder(order.id)}>
+                    Sipariş sürecini aç →
+                  </button>
+                )}
+              </div>
+            </article>
+          );
+        })}
+        {!ended.length && (
+          <EmptyState
+            icon="🏁"
+            title="Henüz sonuçlanan açık artırma yok"
+            text="Süresi biten ilanların kazanan ve satış bilgileri burada görünecek."
+          />
+        )}
+      </div>
+    </section>
+  );
+}
+
+function disputeLabel(status: DisputeStatus) {
+  if (status === "open") return "Yeni kayıt";
+  if (status === "reviewing") return "İnceleniyor";
+  if (status === "resolved_buyer") return "Alıcı lehine sonuçlandı";
+  return "Satıcı lehine sonuçlandı";
+}
+
+function DisputesCenter({
+  disputes,
+  orders,
+  auctions,
+  currentUser,
+  selectedOrderId,
+  liveMode,
+  onCreate,
+  onResolve,
+}: {
+  disputes: Dispute[];
+  orders: Order[];
+  auctions: Auction[];
+  currentUser: AppUser;
+  selectedOrderId: string;
+  liveMode: boolean;
+  onCreate: (orderId: string, reason: string, details: string) => void;
+  onResolve: (id: string, result: "buyer" | "seller" | "reviewing") => void;
+}) {
+  const relevantOrders = orders.filter(
+    (order) =>
+      order.buyerId === currentUser.id || order.sellerId === currentUser.id,
+  );
+  const [orderId, setOrderId] = useState(
+    selectedOrderId || relevantOrders[0]?.id || "",
+  );
+  const [reason, setReason] = useState("Ürün ilandaki gibi değil");
+  const [details, setDetails] = useState("");
+  return (
+    <section className="page standalone-page">
+      <ScreenTitle
+        title="İtiraz ve iadeler"
+        text="Ödeme korumasını durdur, kanıt ekle ve çözüm sürecini takip et"
+      />
+      <div className="dispute-layout">
+        <section className="dispute-form-card">
+          <span>YENİ SORUN BİLDİRİMİ</span>
+          <h2>İşlem için güvenli inceleme başlat</h2>
+          <label>
+            Sipariş
+            <select value={orderId} onChange={(event) => setOrderId(event.target.value)}>
+              {relevantOrders.map((order) => {
+                const auction = auctions.find((item) => item.id === order.auctionId);
+                return (
+                  <option value={order.id} key={order.id}>
+                    {auction?.title || order.id} · {money.format(order.amount)}
+                  </option>
+                );
+              })}
+            </select>
+          </label>
+          <label>
+            Sorun türü
+            <select value={reason} onChange={(event) => setReason(event.target.value)}>
+              <option>Ürün ilandaki gibi değil</option>
+              <option>Kargo süresi aşıldı</option>
+              <option>Eksik veya hasarlı ürün</option>
+              <option>Sahte ürün şüphesi</option>
+              <option>Yanlış ürün gönderildi</option>
+            </select>
+          </label>
+          <label>
+            Açıklama
+            <textarea
+              value={details}
+              onChange={(event) => setDetails(event.target.value)}
+              placeholder="Sorunu, teslimat durumunu ve talep ettiğin çözümü yaz…"
+            />
+          </label>
+          <button
+            className="primary-button"
+            disabled={!orderId}
+            onClick={() => {
+              onCreate(orderId, reason, details);
+              setDetails("");
+            }}
+          >
+            İtiraz kaydı oluştur
+          </button>
+          <p>
+            İtiraz açıldığında ödeme satıcıya aktarılmaz. İnceleme sonuçlanana kadar
+            güvenli hesapta tutulur.
+          </p>
+        </section>
+        <aside className="dispute-rules">
+          <strong>Çözüm hedefi</strong>
+          <b>48 saat</b>
+          <p>Mesajlar, ilan açıklaması, ödeme ve kargo geçmişi birlikte incelenir.</p>
+          <ul>
+            <li>✓ Ödeme otomatik durdurulur</li>
+            <li>✓ Tarafların kayıtları korunur</li>
+            <li>✓ İade veya ödeme kararı verilir</li>
+          </ul>
+        </aside>
+      </div>
+      <div className="section-heading">
+        <div><strong>İtiraz geçmişi</strong></div>
+        <span>{disputes.length} kayıt</span>
+      </div>
+      <div className="dispute-list">
+        {disputes.map((dispute) => {
+          const order = orders.find((item) => item.id === dispute.orderId);
+          const auction = auctions.find((item) => item.id === order?.auctionId);
+          return (
+            <article key={dispute.id}>
+              <div className="dispute-head">
+                <span className={`dispute-status ${dispute.status}`}>
+                  {disputeLabel(dispute.status)}
+                </span>
+                <small>{dateTime.format(new Date(dispute.updatedAt))}</small>
+              </div>
+              <strong>{auction?.title || dispute.orderId}</strong>
+              <h3>{dispute.reason}</h3>
+              <p>{dispute.details}</p>
+              <div className="dispute-actions">
+                <span>{order ? money.format(order.amount) : ""}</span>
+                {!liveMode && (dispute.status === "open" || dispute.status === "reviewing") && (
+                  <div>
+                    <button onClick={() => onResolve(dispute.id, "reviewing")}>İncelemeye al</button>
+                    <button onClick={() => onResolve(dispute.id, "buyer")}>Alıcı lehine</button>
+                    <button onClick={() => onResolve(dispute.id, "seller")}>Satıcı lehine</button>
+                  </div>
+                )}
+              </div>
+            </article>
+          );
+        })}
+        {!disputes.length && (
+          <EmptyState
+            icon="⚖️"
+            title="İtiraz kaydı yok"
+            text="Sorunsuz tamamlanan işlemlerde ödeme otomatik olarak satıcıya aktarılır."
+          />
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ReviewsCenter({
+  reviews,
+  orders,
+  auctions,
+  currentUser,
+  onSubmit,
+}: {
+  reviews: Review[];
+  orders: Order[];
+  auctions: Auction[];
+  currentUser: AppUser;
+  onSubmit: (orderId: string, rating: number, text: string) => void;
+}) {
+  const reviewable = orders.filter(
+    (order) =>
+      order.buyerId === currentUser.id &&
+      (order.paymentStatus === "released" || order.shipmentStatus === "approved") &&
+      !reviews.some((review) => review.orderId === order.id),
+  );
+  const mine = reviews.filter((review) => review.reviewer === currentUser.name);
+  const [ratingByOrder, setRatingByOrder] = useState<Record<string, number>>({});
+  const [textByOrder, setTextByOrder] = useState<Record<string, string>>({});
+  return (
+    <section className="page standalone-page">
+      <ScreenTitle
+        title="Değerlendirmelerim"
+        text="Tamamlanan işlemleri puanla ve satıcı güven puanına katkı sağla"
+      />
+      <div className="review-summary-grid">
+        <article><span>Değerlendirilebilir</span><strong>{reviewable.length}</strong><small>Tamamlanan alım</small></article>
+        <article><span>Yayınlanan yorum</span><strong>{mine.length}</strong><small>Satıcı profillerinde</small></article>
+        <article><span>Ortalama puanın</span><strong>{mine.length ? (mine.reduce((sum, item) => sum + item.rating, 0) / mine.length).toFixed(1) : "—"}</strong><small>Verdiğin puanlar</small></article>
+      </div>
+      <div className="reviewable-list">
+        {reviewable.map((order) => {
+          const auction = auctions.find((item) => item.id === order.auctionId);
+          const rating = ratingByOrder[order.id] || 0;
+          const text = textByOrder[order.id] || "";
+          return (
+            <article key={order.id}>
+              {auction && <img src={auction.image} alt="" />}
+              <div>
+                <span>İŞLEM TAMAMLANDI</span>
+                <strong>{auction?.title}</strong>
+                <small>{money.format(order.amount)}</small>
+                <div className="star-picker">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <button
+                      className={star <= rating ? "active" : ""}
+                      onClick={() => setRatingByOrder((items) => ({ ...items, [order.id]: star }))}
+                      key={star}
+                    >★</button>
+                  ))}
+                </div>
+                <textarea
+                  value={text}
+                  onChange={(event) => setTextByOrder((items) => ({ ...items, [order.id]: event.target.value }))}
+                  placeholder="Ürün, iletişim ve kargo deneyimini yaz…"
+                />
+                <button
+                  className="primary-button"
+                  onClick={() => onSubmit(order.id, rating, text)}
+                >
+                  Değerlendirmeyi yayınla
+                </button>
+              </div>
+            </article>
+          );
+        })}
+        {!reviewable.length && (
+          <EmptyState
+            icon="⭐"
+            title="Bekleyen değerlendirme yok"
+            text="Teslim alıp onayladığın işlemler burada puanlamaya açılır."
+          />
+        )}
+      </div>
+      <div className="section-heading review-heading">
+        <div><strong>Yayınladığın yorumlar</strong></div>
+        <span>{mine.length} yorum</span>
+      </div>
+      <div className="review-list">
+        {mine.map((review) => (
+          <article key={review.id}>
+            <div>
+              <span className="review-avatar">{review.reviewer.charAt(0)}</span>
+              <div><strong>{review.product}</strong><small>{dateTime.format(new Date(review.createdAt))}</small></div>
+              <b>{"★".repeat(review.rating)}{"☆".repeat(5 - review.rating)}</b>
+            </div>
+            <p>{review.text}</p>
+          </article>
+        ))}
       </div>
     </section>
   );
