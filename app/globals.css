@@ -7071,3 +7071,22 @@ img {
     width: 100%;
   }
 }
+
+/* V21 KapışKapış marka kimliği */
+.brand-logo { width: 150px; height: 46px; object-fit: contain; object-position: left center; flex: 0 0 auto; }
+.brand > span:last-child strong { display: none; }
+.brand > span:last-child small { color: #8a6200; font-weight: 800; }
+.auth-brand-logo { width: min(300px, 82vw); height: 96px; object-fit: contain; margin: 0 auto 8px; display: block; }
+.auth-card { background: linear-gradient(145deg,#111216,#08090b); color: #fff; border: 1px solid rgba(242,169,0,.28); }
+.auth-card p { color: #b7bac4; }
+.auth-card input { color: #111827; }
+.auth-tabs { background: #1b1d23; }
+.auth-tabs button { color: #c8cbd3; }
+.auth-tabs button.active { color: #111; background: linear-gradient(135deg,#ffd84d,#f2a900); }
+.auth-submit { color: #111 !important; background: linear-gradient(135deg,#ffd84d,#f2a900) !important; }
+.topbar { border-bottom-color: rgba(242,169,0,.18); }
+@media (max-width: 640px) {
+  .brand-logo { width: 112px; height: 38px; }
+  .brand > span:last-child small { display: none; }
+  .auth-brand-logo { height: 78px; }
+}

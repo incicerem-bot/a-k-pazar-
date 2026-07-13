@@ -414,7 +414,7 @@ const DEMO_USER: AppUser = {
   name: "Kemal Akar",
   initials: "KA",
   city: "İzmir",
-  email: "demo@acikpazar.local",
+  email: "demo@kapiskapis.local",
 };
 
 const seedMembership: MembershipState = {
@@ -613,7 +613,7 @@ const membershipMeta: Record<MembershipTier, {
     ],
   },
   plus: {
-    name: "AçıkPazar Plus",
+    name: "KapışKapış Plus",
     price: 249,
     commission: 5,
     color: "Turuncu",
@@ -626,7 +626,7 @@ const membershipMeta: Record<MembershipTier, {
     ],
   },
   pro: {
-    name: "AçıkPazar Pro",
+    name: "KapışKapış Pro",
     price: 599,
     commission: 3,
     color: "Mor",
@@ -1351,23 +1351,23 @@ function safeRead(): StoredState {
   };
   if (typeof window === "undefined") return defaults;
   const raw =
-    window.localStorage.getItem("acikpazar-v20") ||
-    window.localStorage.getItem("acikpazar-v18") ||
-    window.localStorage.getItem("acikpazar-v17") ||
-    window.localStorage.getItem("acikpazar-v16") ||
-    window.localStorage.getItem("acikpazar-v15") ||
-    window.localStorage.getItem("acikpazar-v14") ||
-    window.localStorage.getItem("acikpazar-v13") ||
-    window.localStorage.getItem("acikpazar-v12") ||
-    window.localStorage.getItem("acikpazar-v11") ||
-    window.localStorage.getItem("acikpazar-v10") ||
-    window.localStorage.getItem("acikpazar-v9") ||
-    window.localStorage.getItem("acikpazar-v8") ||
-    window.localStorage.getItem("acikpazar-v7") ||
-    window.localStorage.getItem("acikpazar-v6") ||
-    window.localStorage.getItem("acikpazar-v5") ||
-    window.localStorage.getItem("acikpazar-v4") ||
-    window.localStorage.getItem("acikpazar-v3");
+    window.localStorage.getItem("kapiskapis-v20") ||
+    window.localStorage.getItem("kapiskapis-v18") ||
+    window.localStorage.getItem("kapiskapis-v17") ||
+    window.localStorage.getItem("kapiskapis-v16") ||
+    window.localStorage.getItem("kapiskapis-v15") ||
+    window.localStorage.getItem("kapiskapis-v14") ||
+    window.localStorage.getItem("kapiskapis-v13") ||
+    window.localStorage.getItem("kapiskapis-v12") ||
+    window.localStorage.getItem("kapiskapis-v11") ||
+    window.localStorage.getItem("kapiskapis-v10") ||
+    window.localStorage.getItem("kapiskapis-v9") ||
+    window.localStorage.getItem("kapiskapis-v8") ||
+    window.localStorage.getItem("kapiskapis-v7") ||
+    window.localStorage.getItem("kapiskapis-v6") ||
+    window.localStorage.getItem("kapiskapis-v5") ||
+    window.localStorage.getItem("kapiskapis-v4") ||
+    window.localStorage.getItem("kapiskapis-v3");
   if (!raw) return defaults;
   try {
     const parsed = JSON.parse(raw) as Partial<StoredState>;
@@ -1455,23 +1455,23 @@ function safeRead(): StoredState {
     };
   } catch {
     [
-      "acikpazar-v20",
-      "acikpazar-v18",
-      "acikpazar-v17",
-      "acikpazar-v16",
-      "acikpazar-v15",
-      "acikpazar-v14",
-      "acikpazar-v13",
-      "acikpazar-v12",
-      "acikpazar-v11",
-      "acikpazar-v10",
-      "acikpazar-v9",
-      "acikpazar-v7",
-      "acikpazar-v6",
-      "acikpazar-v5",
-      "acikpazar-v4",
-      "acikpazar-v3",
-      "acikpazar-moderation-v4",
+      "kapiskapis-v20",
+      "kapiskapis-v18",
+      "kapiskapis-v17",
+      "kapiskapis-v16",
+      "kapiskapis-v15",
+      "kapiskapis-v14",
+      "kapiskapis-v13",
+      "kapiskapis-v12",
+      "kapiskapis-v11",
+      "kapiskapis-v10",
+      "kapiskapis-v9",
+      "kapiskapis-v7",
+      "kapiskapis-v6",
+      "kapiskapis-v5",
+      "kapiskapis-v4",
+      "kapiskapis-v3",
+      "kapiskapis-moderation-v4",
     ].forEach((key) => window.localStorage.removeItem(key));
     return defaults;
   }
@@ -1695,7 +1695,7 @@ export default function Home() {
             bidCount: Number(row.bid_count),
             endsAt: row.ends_at,
             city: row.city,
-            seller: seller?.full_name || "AçıkPazar kullanıcısı",
+            seller: seller?.full_name || "KapışKapış kullanıcısı",
             sellerId: row.seller_id,
             verified: Boolean(seller?.identity_verified),
             condition: row.condition as Condition,
@@ -1832,7 +1832,7 @@ export default function Home() {
   useEffect(() => {
     if (!supabase || !authUser) return;
     const channel = supabase
-      .channel(`acikpazar-${authUser.id}`)
+      .channel(`kapiskapis-${authUser.id}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "auctions" },
@@ -1877,7 +1877,7 @@ export default function Home() {
   useEffect(() => {
     if (!hydrated || supabase) return;
     window.localStorage.setItem(
-      "acikpazar-v20",
+      "kapiskapis-v20",
       JSON.stringify({
         auctions,
         bids,
@@ -1946,7 +1946,7 @@ export default function Home() {
 
   useEffect(() => {
     if (supabase || typeof window === "undefined") return;
-    const saved = window.localStorage.getItem("acikpazar-moderation-v4");
+    const saved = window.localStorage.getItem("kapiskapis-moderation-v4");
     if (saved) {
       try {
         setModeration(JSON.parse(saved));
@@ -1959,7 +1959,7 @@ export default function Home() {
   useEffect(() => {
     if (supabase || typeof window === "undefined") return;
     window.localStorage.setItem(
-      "acikpazar-moderation-v4",
+      "kapiskapis-moderation-v4",
       JSON.stringify(moderation),
     );
   }, [moderation, supabase]);
@@ -2038,7 +2038,7 @@ export default function Home() {
             amount: topBid.amount,
             paymentStatus: "pending",
             shipmentStatus: "waiting",
-            carrier: "AçıkPazar Anlaşmalı Kargo",
+            carrier: "KapışKapış Anlaşmalı Kargo",
             updatedAt: new Date().toISOString(),
           });
         }
@@ -2499,7 +2499,7 @@ export default function Home() {
     ]);
     addNotice(
       "Bakiye yüklendi",
-      `${money.format(amount)} AçıkPazar cüzdanına eklendi.`,
+      `${money.format(amount)} KapışKapış cüzdanına eklendi.`,
     );
     setToast(`${money.format(amount)} bakiyene eklendi.`);
   }
@@ -3495,24 +3495,24 @@ export default function Home() {
     setUserCases(seedUserCases);
     setSystemSettings(seedSystemSettings);
     setCompareIds([]);
-    window.localStorage.removeItem("acikpazar-v20");
-    window.localStorage.removeItem("acikpazar-v18");
-    window.localStorage.removeItem("acikpazar-v17");
-    window.localStorage.removeItem("acikpazar-v16");
-    window.localStorage.removeItem("acikpazar-v15");
-    window.localStorage.removeItem("acikpazar-v14");
-    window.localStorage.removeItem("acikpazar-v13");
-    window.localStorage.removeItem("acikpazar-v12");
-    window.localStorage.removeItem("acikpazar-v11");
-    window.localStorage.removeItem("acikpazar-v10");
-    window.localStorage.removeItem("acikpazar-v9");
-    window.localStorage.removeItem("acikpazar-v8");
-    window.localStorage.removeItem("acikpazar-v7");
-    window.localStorage.removeItem("acikpazar-v6");
-    window.localStorage.removeItem("acikpazar-v5");
-    window.localStorage.removeItem("acikpazar-v4");
-    window.localStorage.removeItem("acikpazar-v3");
-    window.localStorage.removeItem("acikpazar-moderation-v4");
+    window.localStorage.removeItem("kapiskapis-v20");
+    window.localStorage.removeItem("kapiskapis-v18");
+    window.localStorage.removeItem("kapiskapis-v17");
+    window.localStorage.removeItem("kapiskapis-v16");
+    window.localStorage.removeItem("kapiskapis-v15");
+    window.localStorage.removeItem("kapiskapis-v14");
+    window.localStorage.removeItem("kapiskapis-v13");
+    window.localStorage.removeItem("kapiskapis-v12");
+    window.localStorage.removeItem("kapiskapis-v11");
+    window.localStorage.removeItem("kapiskapis-v10");
+    window.localStorage.removeItem("kapiskapis-v9");
+    window.localStorage.removeItem("kapiskapis-v8");
+    window.localStorage.removeItem("kapiskapis-v7");
+    window.localStorage.removeItem("kapiskapis-v6");
+    window.localStorage.removeItem("kapiskapis-v5");
+    window.localStorage.removeItem("kapiskapis-v4");
+    window.localStorage.removeItem("kapiskapis-v3");
+    window.localStorage.removeItem("kapiskapis-moderation-v4");
     setModeration({ "2": "pending", "4": "pending", "6": "pending" });
     navigate("home");
     setToast("Demo verileri sıfırlandı.");
@@ -3701,10 +3701,10 @@ export default function Home() {
             onClick={() => navigate("home")}
             aria-label="Ana sayfa"
           >
-            <span className="brand-mark">A</span>
+            <img className="brand-logo" src="/kapiskapis-logo.svg" alt="KapışKapış" />
             <span>
-              <strong>AçıkPazar</strong>
-              <small>Teklif ver, değerini bul</small>
+              <strong>KapışKapış</strong>
+              <small>Beğendiysen bekleme, KapışKapış kap!</small>
             </span>
           </button>
           <div className="topbar-actions">
@@ -4825,8 +4825,8 @@ function LoadingScreen({ text }: { text: string }) {
   return (
     <main className="auth-shell">
       <div className="auth-card">
-        <span className="auth-logo">A</span>
-        <h1>AçıkPazar</h1>
+        <img className="auth-brand-logo" src="/kapiskapis-logo.svg" alt="KapışKapış" />
+        <h1>KapışKapış</h1>
         <p>{text}</p>
         <div className="auth-loader" />
       </div>
@@ -4873,13 +4873,13 @@ function AuthGate() {
   return (
     <main className="auth-shell">
       <section className="auth-card auth-form-card">
-        <span className="auth-logo">A</span>
+        <img className="auth-brand-logo" src="/kapiskapis-logo.svg" alt="KapışKapış" />
         <div>
           <span className="eyebrow">SUPABASE BAĞLANDI</span>
           <h1>
             {mode === "register"
               ? "İlk hesabını oluştur"
-              : "AçıkPazar’a giriş yap"}
+              : "KapışKapış’a giriş yap"}
           </h1>
           <p>
             Bu hesap, ilanları ve teklifleri gerçek veritabanında saklayacak.
@@ -7101,7 +7101,7 @@ function OperationsCenter({
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `acikpazar-denetim-${new Date().toISOString().slice(0, 10)}.csv`;
+    anchor.download = `kapiskapis-denetim-${new Date().toISOString().slice(0, 10)}.csv`;
     anchor.click();
     URL.revokeObjectURL(url);
   }
@@ -7467,7 +7467,7 @@ function FinanceReportsScreen({
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "acikpazar-satis-raporu.csv";
+    link.download = "kapiskapis-satis-raporu.csv";
     link.click();
     URL.revokeObjectURL(url);
   }
@@ -7873,7 +7873,7 @@ function MessagesScreen({
           last,
           auction,
           otherName:
-            other?.senderName || auction?.seller || "AçıkPazar kullanıcısı",
+            other?.senderName || auction?.seller || "KapışKapış kullanıcısı",
           unread: items.filter(
             (item) => !item.read && item.senderId !== currentUser.id,
           ).length,
@@ -8054,7 +8054,7 @@ function CheckoutScreen({
             {auction && <img src={auction.image} alt="" />}
             <div>
               <span>Kazandığın açık artırma</span>
-              <strong>{auction?.title || "AçıkPazar ürünü"}</strong>
+              <strong>{auction?.title || "KapışKapış ürünü"}</strong>
               <small>{auction?.seller}</small>
             </div>
             <b>{money.format(order.amount)}</b>
@@ -8106,7 +8106,7 @@ function CheckoutScreen({
               />
               <span>◉</span>
               <div>
-                <b>AçıkPazar bakiye</b>
+                <b>KapışKapış bakiye</b>
                 <small>Mevcut bakiye: {money.format(walletBalance)}</small>
               </div>
             </label>
@@ -8342,7 +8342,7 @@ function PromotionsCenter({
   return (
     <section className="page standalone-page promotion-page">
       <ScreenTitle title="İlan öne çıkarma" text="İlanını daha çok alıcıya göster, daha fazla teklif topla" />
-      <div className="promotion-wallet"><span>Kullanılabilir bakiye</span><strong>{money.format(walletBalance)}</strong><small>Öne çıkarma bedeli AçıkPazar cüzdanından düşer.</small></div>
+      <div className="promotion-wallet"><span>Kullanılabilir bakiye</span><strong>{money.format(walletBalance)}</strong><small>Öne çıkarma bedeli KapışKapış cüzdanından düşer.</small></div>
       <div className="promotion-picker">
         <strong>Öne çıkarılacak ilan</strong>
         {mine.length ? (
@@ -8512,7 +8512,7 @@ function WalletCenter({
   return (
     <section className="page standalone-page">
       <ScreenTitle
-        title="AçıkPazar Cüzdan"
+        title="KapışKapış Cüzdan"
         text="Bakiyeni, güvenli ödemelerini ve satış gelirlerini yönet"
       />
       <div className="wallet-hero">
@@ -8859,7 +8859,7 @@ function FollowingScreen({
     const seller = sellerAuctions[0];
     return {
       sellerId,
-      name: seller?.seller || "AçıkPazar Satıcısı",
+      name: seller?.seller || "KapışKapış Satıcısı",
       city: seller?.city || "Türkiye",
       auctions: sellerAuctions.filter((auction) => !isEnded(auction, now)),
       score: sellerScore(sellerId),
@@ -9201,7 +9201,7 @@ function StoreShowcase({
       <div className="store-showcase-head">
         <div>
           <span>SEÇİLMİŞ SATICILAR</span>
-          <h2>AçıkPazar mağazaları</h2>
+          <h2>KapışKapış mağazaları</h2>
           <p>Takip et, koleksiyonları keşfet ve takipçiye özel kampanyaları yakala.</p>
         </div>
       </div>
@@ -9270,14 +9270,14 @@ function StorefrontScreen({
   const sellerAuctions = auctions.filter(
     (auction) => auction.sellerId === sellerId,
   );
-  const sellerName = sellerAuctions[0]?.seller || "AçıkPazar Satıcısı";
+  const sellerName = sellerAuctions[0]?.seller || "KapışKapış Satıcısı";
   const store: StoreProfile =
     profile || {
       sellerId,
       name: `${sellerName} Mağazası`,
       tagline: "Güvenli açık artırmalar ve seçilmiş ikinci el ürünler",
       about:
-        "Bu mağaza AçıkPazar korumalı ödeme ve doğrulanmış satıcı altyapısını kullanır.",
+        "Bu mağaza KapışKapış korumalı ödeme ve doğrulanmış satıcı altyapısını kullanır.",
       featuredAuctionIds: sellerAuctions.slice(0, 3).map((item) => item.id),
       followerDiscount: 5,
       campaignActive: false,
@@ -9608,7 +9608,7 @@ function SellerProfile({
     (review) => review.sellerId === sellerId,
   );
   const score = sellerScore(sellerId, reviews);
-  const sellerName = seller?.seller || "AçıkPazar Satıcısı";
+  const sellerName = seller?.seller || "KapışKapış Satıcısı";
   const sellerCity = seller?.city || "Türkiye";
   return (
     <section className="page standalone-page">
@@ -9743,7 +9743,7 @@ function AdminPanel({
       <div className="admin-hero">
         <div>
           <span>YÖNETİM MERKEZİ</span>
-          <h1>AçıkPazar Kontrol Paneli</h1>
+          <h1>KapışKapış Kontrol Paneli</h1>
           <p>İlan güvenliği, kullanıcı hareketleri ve platform performansı.</p>
         </div>
         <b>Kurucu erişimi</b>
