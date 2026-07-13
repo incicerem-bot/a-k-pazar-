@@ -4,9 +4,11 @@ import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useState } fro
 import type { User } from "@supabase/supabase-js";
 import { getSupabaseBrowserClient, supabaseConfigurationReady } from "../lib/supabase";
 
-type Screen = "home" | "favorites" | "sell" | "bids" | "profile" | "detail" | "notifications" | "myListings";
-type AuctionStatus = "active" | "ended";
+type Screen = "home" | "favorites" | "sell" | "bids" | "profile" | "detail" | "notifications" | "myListings" | "orders" | "sellerCenter" | "security" | "support" | "sellerProfile" | "admin";
 type Condition = "Sıfır" | "Çok iyi" | "İyi" | "Orta";
+type PaymentStatus = "pending" | "held" | "released" | "refunded";
+type ShipmentStatus = "waiting" | "prepared" | "shipped" | "delivered" | "approved" | "disputed";
+type ModerationStatus = "pending" | "approved" | "rejected";
 
 type Auction = {
   id: string;
@@ -49,10 +51,35 @@ type Notice = {
   auctionId?: string;
 };
 
+type Order = {
+  id: string;
+  auctionId: string;
+  buyerId: string;
+  sellerId: string;
+  amount: number;
+  paymentStatus: PaymentStatus;
+  shipmentStatus: ShipmentStatus;
+  carrier?: string;
+  trackingNumber?: string;
+  updatedAt: string;
+};
+
+
+type Review = {
+  id: string;
+  sellerId: string;
+  reviewer: string;
+  rating: number;
+  text: string;
+  product: string;
+  createdAt: string;
+};
+
 type StoredState = {
   auctions: Auction[];
   bids: Bid[];
   notices: Notice[];
+  orders: Order[];
 };
 
 type AppUser = { id: string; name: string; initials: string; city: string; email?: string };
@@ -189,6 +216,48 @@ const seedAuctions: Auction[] = [
     paymentHold: true,
     createdAt: new Date(Date.now() - 1000 * 60 * 60 * 11).toISOString(),
   },
+  {
+    id: "7",
+    title: "PlayStation Portal Remote Player",
+    category: "Oyun",
+    image: "/products/ps5.svg",
+    currentBid: 12800,
+    startingBid: 9000,
+    bidCount: 34,
+    endsAt: new Date(Date.now() - 1000 * 60 * 60 * 30).toISOString(),
+    city: "İstanbul",
+    seller: "Cem A.",
+    sellerId: "seller-cem",
+    verified: true,
+    condition: "Çok iyi",
+    description: "Faturalı, kutulu ve çok temiz. Açık artırmayı kazanan alıcı için korumalı ödeme başlatıldı.",
+    minIncrement: 250,
+    reservePrice: 12000,
+    shipping: "Param Güvende Kargo",
+    paymentHold: true,
+    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 75).toISOString(),
+  },
+  {
+    id: "8",
+    title: "Nintendo Switch Lite Turkuaz",
+    category: "Oyun",
+    image: "/products/switch.svg",
+    currentBid: 8900,
+    startingBid: 6000,
+    bidCount: 22,
+    endsAt: new Date(Date.now() - 1000 * 60 * 60 * 90).toISOString(),
+    city: "İzmir",
+    seller: DEMO_USER.name,
+    sellerId: DEMO_USER.id,
+    verified: true,
+    condition: "İyi",
+    description: "Satışı tamamlanan örnek ilan. Kargo ve ödeme adımları Satış Merkezi ekranından izlenebilir.",
+    minIncrement: 250,
+    reservePrice: 8000,
+    shipping: "Param Güvende Kargo",
+    paymentHold: true,
+    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 140).toISOString(),
+  },
 ];
 
 const seedBids: Bid[] = [
@@ -197,12 +266,51 @@ const seedBids: Bid[] = [
   { id: "3", auctionId: "1", userId: "user-b", userName: "S*** D.", amount: 18500, createdAt: new Date(Date.now() - 1000 * 60 * 2).toISOString() },
   { id: "4", auctionId: "3", userId: DEMO_USER.id, userName: DEMO_USER.name, amount: 45500, createdAt: new Date(Date.now() - 1000 * 60 * 31).toISOString() },
   { id: "5", auctionId: "3", userId: "user-c", userName: "T*** E.", amount: 46250, createdAt: new Date(Date.now() - 1000 * 60 * 18).toISOString() },
+  { id: "6", auctionId: "7", userId: DEMO_USER.id, userName: DEMO_USER.name, amount: 12800, createdAt: new Date(Date.now() - 1000 * 60 * 60 * 31).toISOString() },
+  { id: "7", auctionId: "8", userId: "user-z", userName: "E*** K.", amount: 8900, createdAt: new Date(Date.now() - 1000 * 60 * 60 * 91).toISOString() },
 ];
 
 const seedNotices: Notice[] = [
   { id: "1", title: "Teklifin geçildi", text: "PlayStation 5 Slim ilanında daha yüksek teklif verildi.", createdAt: new Date(Date.now() - 1000 * 60 * 2).toISOString(), read: false, auctionId: "1" },
   { id: "2", title: "Favorindeki ilan bitiyor", text: "PlayStation 5 Slim açık artırması bir saatten kısa sürede sona erecek.", createdAt: new Date(Date.now() - 1000 * 60 * 18).toISOString(), read: false, auctionId: "1" },
   { id: "3", title: "Hesabın doğrulandı", text: "Kimlik doğrulaman tamamlandı. Artık teklif verebilir ve ilan açabilirsin.", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 8).toISOString(), read: true },
+  { id: "4", title: "Açık artırmayı kazandın", text: "PlayStation Portal için ödeme ve teslimat süreci başladı.", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 26).toISOString(), read: false, auctionId: "7" },
+];
+
+const seedReviews: Review[] = [
+  { id: "r1", sellerId: "seller-mert", reviewer: "Ayşe K.", rating: 5, text: "Ürün anlatıldığı gibiydi, aynı gün kargoya verdi.", product: "PlayStation 5", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 12).toISOString() },
+  { id: "r2", sellerId: "seller-mert", reviewer: "Ozan T.", rating: 5, text: "Paketleme çok iyiydi. Satıcı iletişimi hızlı.", product: "DualSense Kol", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 31).toISOString() },
+  { id: "r3", sellerId: "seller-selin", reviewer: "Ceren D.", rating: 4, text: "MacBook temizdi, pil bilgisi doğru paylaşıldı.", product: "MacBook Air", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 18).toISOString() },
+  { id: "r4", sellerId: "seller-burak", reviewer: "Emre B.", rating: 5, text: "Telefon kusursuz geldi, faturası eksiksizdi.", product: "iPhone 15 Pro", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 8).toISOString() },
+  { id: "r5", sellerId: "seller-efe", reviewer: "Can S.", rating: 4, text: "Bilgisayar performansı ilandaki testlerle uyumlu.", product: "Gaming PC", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 22).toISOString() },
+  { id: "r6", sellerId: DEMO_USER.id, reviewer: "E*** K.", rating: 5, text: "Hızlı kargo ve güvenli paketleme. Tekrar alışveriş yaparım.", product: "Nintendo Switch Lite", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 4).toISOString() },
+  { id: "r7", sellerId: DEMO_USER.id, reviewer: "B*** A.", rating: 5, text: "Ürün açıklaması çok detaylıydı, sürpriz yaşamadım.", product: "Oyun Konsolu", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 44).toISOString() },
+];
+
+const seedOrders: Order[] = [
+  {
+    id: "order-1",
+    auctionId: "7",
+    buyerId: DEMO_USER.id,
+    sellerId: "seller-cem",
+    amount: 12800,
+    paymentStatus: "held",
+    shipmentStatus: "shipped",
+    carrier: "Yurtiçi Kargo",
+    trackingNumber: "YP482719033TR",
+    updatedAt: new Date(Date.now() - 1000 * 60 * 60 * 6).toISOString(),
+  },
+  {
+    id: "order-2",
+    auctionId: "8",
+    buyerId: "user-z",
+    sellerId: DEMO_USER.id,
+    amount: 8900,
+    paymentStatus: "held",
+    shipmentStatus: "prepared",
+    carrier: "MNG Kargo",
+    updatedAt: new Date(Date.now() - 1000 * 60 * 60 * 20).toISOString(),
+  },
 ];
 
 function remaining(iso: string, now: number) {
@@ -221,16 +329,18 @@ function isEnded(auction: Auction, now: number) {
 }
 
 function safeRead(): StoredState {
-  if (typeof window === "undefined") return { auctions: seedAuctions, bids: seedBids, notices: seedNotices };
-  const raw = window.localStorage.getItem("acikpazar-v2");
-  if (!raw) return { auctions: seedAuctions, bids: seedBids, notices: seedNotices };
+  if (typeof window === "undefined") return { auctions: seedAuctions, bids: seedBids, notices: seedNotices, orders: seedOrders };
+  const raw = window.localStorage.getItem("acikpazar-v4") || window.localStorage.getItem("acikpazar-v3");
+  if (!raw) return { auctions: seedAuctions, bids: seedBids, notices: seedNotices, orders: seedOrders };
   try {
     const parsed = JSON.parse(raw) as StoredState;
     if (!Array.isArray(parsed.auctions) || !Array.isArray(parsed.bids) || !Array.isArray(parsed.notices)) throw new Error("invalid");
-    return parsed;
+    return { ...parsed, orders: Array.isArray(parsed.orders) ? parsed.orders : seedOrders };
   } catch {
-    window.localStorage.removeItem("acikpazar-v2");
-    return { auctions: seedAuctions, bids: seedBids, notices: seedNotices };
+    window.localStorage.removeItem("acikpazar-v4");
+    window.localStorage.removeItem("acikpazar-v3");
+    window.localStorage.removeItem("acikpazar-moderation-v4");
+    return { auctions: seedAuctions, bids: seedBids, notices: seedNotices, orders: seedOrders };
   }
 }
 
@@ -241,6 +351,13 @@ function initialsFromName(name: string) {
     .slice(0, 2)
     .map((part) => part.charAt(0).toLocaleUpperCase("tr"))
     .join("") || "AP";
+}
+
+function sellerScore(sellerId: string) {
+  const sellerReviews = seedReviews.filter((review) => review.sellerId === sellerId);
+  if (!sellerReviews.length) return { rating: 4.7, count: 9, sales: 14 };
+  const rating = sellerReviews.reduce((sum, review) => sum + review.rating, 0) / sellerReviews.length;
+  return { rating, count: sellerReviews.length, sales: 12 + sellerReviews.length * 3 };
 }
 
 function fallbackImage(category: string) {
@@ -266,6 +383,7 @@ export default function Home() {
   const [auctions, setAuctions] = useState<Auction[]>(liveMode ? [] : seedAuctions);
   const [bids, setBids] = useState<Bid[]>(liveMode ? [] : seedBids);
   const [notices, setNotices] = useState<Notice[]>(liveMode ? [] : seedNotices);
+  const [orders, setOrders] = useState<Order[]>(liveMode ? [] : seedOrders);
   const [selectedId, setSelectedId] = useState(liveMode ? "" : "1");
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("Tümü");
@@ -277,6 +395,13 @@ export default function Home() {
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [currentUser, setCurrentUser] = useState<AppUser>(DEMO_USER);
   const [remoteLoading, setRemoteLoading] = useState(liveMode);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [conditionFilter, setConditionFilter] = useState("Tümü");
+  const [cityFilter, setCityFilter] = useState("Tümü");
+  const [maxPrice, setMaxPrice] = useState(0);
+  const [endingFilter, setEndingFilter] = useState("Tümü");
+  const [selectedSellerId, setSelectedSellerId] = useState("");
+  const [moderation, setModeration] = useState<Record<string, ModerationStatus>>({ "2": "pending", "4": "pending", "6": "pending" });
 
   const loadRemoteData = useCallback(async (user: User) => {
     if (!supabase) return;
@@ -381,6 +506,7 @@ export default function Home() {
       setAuctions(stored.auctions);
       setBids(stored.bids);
       setNotices(stored.notices);
+      setOrders(stored.orders);
       setHydrated(true);
       return () => window.clearInterval(interval);
     }
@@ -417,8 +543,21 @@ export default function Home() {
 
   useEffect(() => {
     if (!hydrated || supabase) return;
-    window.localStorage.setItem("acikpazar-v2", JSON.stringify({ auctions, bids, notices }));
-  }, [auctions, bids, notices, hydrated, supabase]);
+    window.localStorage.setItem("acikpazar-v4", JSON.stringify({ auctions, bids, notices, orders }));
+  }, [auctions, bids, notices, orders, hydrated, supabase]);
+
+  useEffect(() => {
+    if (supabase || typeof window === "undefined") return;
+    const saved = window.localStorage.getItem("acikpazar-moderation-v4");
+    if (saved) {
+      try { setModeration(JSON.parse(saved)); } catch { /* demo state */ }
+    }
+  }, [supabase]);
+
+  useEffect(() => {
+    if (supabase || typeof window === "undefined") return;
+    window.localStorage.setItem("acikpazar-moderation-v4", JSON.stringify(moderation));
+  }, [moderation, supabase]);
 
   useEffect(() => {
     if (!toast) return;
@@ -427,13 +566,21 @@ export default function Home() {
   }, [toast]);
 
   const categories = ["Tümü", "Telefon", "Bilgisayar", "Oyun", "Ev & Yaşam"];
+  const cities = useMemo(() => ["Tümü", ...Array.from(new Set(auctions.map((auction) => auction.city))).sort()], [auctions]);
+  const activeFilterCount = [conditionFilter !== "Tümü", cityFilter !== "Tümü", maxPrice > 0, endingFilter !== "Tümü"].filter(Boolean).length;
 
   const filtered = useMemo(() => {
     const list = auctions.filter((auction) => {
+      if (isEnded(auction, now)) return false;
       const normalized = `${auction.title} ${auction.category} ${auction.city}`.toLocaleLowerCase("tr");
       const matchesQuery = normalized.includes(query.toLocaleLowerCase("tr"));
       const matchesCategory = category === "Tümü" || auction.category === category;
-      return matchesQuery && matchesCategory;
+      const matchesCondition = conditionFilter === "Tümü" || auction.condition === conditionFilter;
+      const matchesCity = cityFilter === "Tümü" || auction.city === cityFilter;
+      const matchesPrice = maxPrice <= 0 || auction.currentBid <= maxPrice;
+      const hoursLeft = (new Date(auction.endsAt).getTime() - now) / 3_600_000;
+      const matchesEnding = endingFilter === "Tümü" || hoursLeft <= Number(endingFilter);
+      return matchesQuery && matchesCategory && matchesCondition && matchesCity && matchesPrice && matchesEnding;
     });
     return [...list].sort((a, b) => {
       if (sort === "Yeni") return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
@@ -441,11 +588,12 @@ export default function Home() {
       if (sort === "Fiyat yüksek") return b.currentBid - a.currentBid;
       return new Date(a.endsAt).getTime() - new Date(b.endsAt).getTime();
     });
-  }, [auctions, category, query, sort]);
+  }, [auctions, category, query, sort, now, conditionFilter, cityFilter, maxPrice, endingFilter]);
 
   const selected = auctions.find((auction) => auction.id === selectedId) ?? auctions[0];
   const selectedBids = bids.filter((bid) => bid.auctionId === selected?.id).sort((a, b) => b.amount - a.amount);
   const unreadCount = notices.filter((notice) => !notice.read).length;
+  const canAccessAdmin = !liveMode || authUser?.app_metadata?.role === "founder" || authUser?.user_metadata?.role === "founder";
 
   function navigate(next: Screen) {
     setScreen(next);
@@ -455,6 +603,23 @@ export default function Home() {
   function openAuction(id: string) {
     setSelectedId(id);
     navigate("detail");
+  }
+
+  function openSeller(sellerId: string) {
+    setSelectedSellerId(sellerId);
+    navigate("sellerProfile");
+  }
+
+  function clearFilters() {
+    setConditionFilter("Tümü");
+    setCityFilter("Tümü");
+    setMaxPrice(0);
+    setEndingFilter("Tümü");
+  }
+
+  function moderateAuction(id: string, status: ModerationStatus) {
+    setModeration((items) => ({ ...items, [id]: status }));
+    setToast(status === "approved" ? "İlan onaylandı ve yayına hazırlandı." : "İlan inceleme sonucunda reddedildi.");
   }
 
   async function toggleFavorite(id: string) {
@@ -567,7 +732,11 @@ export default function Home() {
     setAuctions(seedAuctions);
     setBids(seedBids);
     setNotices(seedNotices);
-    window.localStorage.removeItem("acikpazar-v2");
+    setOrders(seedOrders);
+    window.localStorage.removeItem("acikpazar-v4");
+    window.localStorage.removeItem("acikpazar-v3");
+    window.localStorage.removeItem("acikpazar-moderation-v4");
+    setModeration({ "2": "pending", "4": "pending", "6": "pending" });
     navigate("home");
     setToast("Demo verileri sıfırlandı.");
   }
@@ -578,8 +747,26 @@ export default function Home() {
     setAuctions([]);
     setBids([]);
     setNotices([]);
+    setOrders([]);
     setCurrentUser(DEMO_USER);
     navigate("home");
+  }
+
+  function advanceOrder(orderId: string) {
+    if (liveMode) {
+      setToast("Canlı ödeme ve kargo işlemleri ödeme sağlayıcısı bağlandığında açılacak.");
+      return;
+    }
+    setOrders((items) => items.map((order) => {
+      if (order.id !== orderId) return order;
+      if (order.paymentStatus === "pending") return { ...order, paymentStatus: "held", updatedAt: new Date().toISOString() };
+      if (order.shipmentStatus === "waiting") return { ...order, shipmentStatus: "prepared", updatedAt: new Date().toISOString() };
+      if (order.shipmentStatus === "prepared") return { ...order, shipmentStatus: "shipped", trackingNumber: order.trackingNumber || `AP${Date.now().toString().slice(-9)}`, updatedAt: new Date().toISOString() };
+      if (order.shipmentStatus === "shipped") return { ...order, shipmentStatus: "delivered", updatedAt: new Date().toISOString() };
+      if (order.shipmentStatus === "delivered") return { ...order, shipmentStatus: "approved", paymentStatus: "released", updatedAt: new Date().toISOString() };
+      return order;
+    }));
+    setToast("Sipariş adımı güncellendi.");
   }
 
   if (!authReady) return <LoadingScreen text="Supabase oturumu kontrol ediliyor…" />;
@@ -594,7 +781,7 @@ export default function Home() {
             <span><strong>AçıkPazar</strong><small>Teklif ver, değerini bul</small></span>
           </button>
           <div className="topbar-actions">
-            <span className={liveMode ? "demo-pill live" : "demo-pill"}>● {liveMode ? "SUPABASE CANLI" : "DEMO"}</span>
+            <span className={liveMode ? "demo-pill live" : "demo-pill"}>● {liveMode ? "SUPABASE CANLI" : "DEMO 4"}</span>
             <button className="icon-button" onClick={openNotifications} aria-label="Bildirimler">🔔{unreadCount > 0 && <span className="notification-count">{unreadCount}</span>}</button>
           </div>
         </header>
@@ -616,10 +803,21 @@ export default function Home() {
 
           <div className="toolbar">
             <label className="search-box"><span>⌕</span><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Telefon, bilgisayar, konsol ara" /></label>
+            <button className={filterOpen || activeFilterCount ? "filter-button active" : "filter-button"} onClick={() => setFilterOpen((value) => !value)}>☷ Filtre{activeFilterCount > 0 && <b>{activeFilterCount}</b>}</button>
             <select className="sort-select" value={sort} onChange={(e) => setSort(e.target.value)} aria-label="Sıralama">
               <option>Bitenler</option><option>Yeni</option><option>Fiyat düşük</option><option>Fiyat yüksek</option>
             </select>
           </div>
+
+          {filterOpen && <div className="filter-panel">
+            <div className="filter-head"><div><strong>Gelişmiş filtreler</strong><small>İlanları bütçe, konum ve süreye göre daralt</small></div><button onClick={clearFilters}>Temizle</button></div>
+            <div className="filter-grid">
+              <label>Ürün durumu<select value={conditionFilter} onChange={(e) => setConditionFilter(e.target.value)}><option>Tümü</option><option>Sıfır</option><option>Çok iyi</option><option>İyi</option><option>Orta</option></select></label>
+              <label>Şehir<select value={cityFilter} onChange={(e) => setCityFilter(e.target.value)}>{cities.map((city) => <option key={city}>{city}</option>)}</select></label>
+              <label>En yüksek teklif<input type="number" min="0" value={maxPrice || ""} onChange={(e) => setMaxPrice(Number(e.target.value))} placeholder="Örn. 30000" /></label>
+              <label>Bitiş süresi<select value={endingFilter} onChange={(e) => setEndingFilter(e.target.value)}><option value="Tümü">Tümü</option><option value="1">1 saat içinde</option><option value="6">6 saat içinde</option><option value="24">24 saat içinde</option></select></label>
+            </div>
+          </div>}
 
           <div className="chips" aria-label="Kategoriler">
             {categories.map((item) => <button key={item} className={category === item ? "chip active" : "chip"} onClick={() => setCategory(item)}>{item}</button>)}
@@ -639,17 +837,23 @@ export default function Home() {
         </section>
       )}
 
-      {screen === "sell" && <SellForm currentUser={currentUser} onCreate={createAuction} onCancel={() => navigate("home")} />}
+      {screen === "sell" && <SellForm currentUser={currentUser} liveMode={liveMode} onCreate={createAuction} onCancel={() => navigate("home")} />}
       {screen === "bids" && <BidsScreen currentUser={currentUser} bids={bids} auctions={auctions} now={now} onOpen={openAuction} />}
-      {screen === "profile" && <Profile currentUser={currentUser} liveMode={liveMode} onListings={() => navigate("myListings")} onBids={() => navigate("bids")} onReset={resetDemo} onSignOut={signOut} />}
+      {screen === "profile" && <Profile currentUser={currentUser} liveMode={liveMode} onListings={() => navigate("myListings")} onBids={() => navigate("bids")} onOrders={() => navigate("orders")} onSellerCenter={() => navigate("sellerCenter")} onSecurity={() => navigate("security")} onSupport={() => navigate("support")} showAdmin={canAccessAdmin} onAdmin={() => navigate("admin")} onReset={resetDemo} onSignOut={signOut} />}
       {screen === "myListings" && <MyListings auctions={auctions.filter((auction) => auction.sellerId === currentUser.id)} now={now} onOpen={openAuction} />}
+      {screen === "orders" && <OrdersScreen currentUser={currentUser} orders={orders} auctions={auctions} liveMode={liveMode} onOpen={openAuction} onAdvance={advanceOrder} />}
+      {screen === "sellerCenter" && <SellerCenter currentUser={currentUser} auctions={auctions} orders={orders} now={now} onOpen={openAuction} onSell={() => navigate("sell")} />}
+      {screen === "security" && <SecurityCenter liveMode={liveMode} />}
+      {screen === "support" && <SupportCenter />}
+      {screen === "sellerProfile" && <SellerProfile sellerId={selectedSellerId || selected?.sellerId || ""} auctions={auctions} now={now} onOpen={openAuction} />}
+      {screen === "admin" && canAccessAdmin && <AdminPanel auctions={auctions} bids={bids} orders={orders} moderation={moderation} onModerate={moderateAuction} onOpen={openAuction} />}
       {screen === "notifications" && <Notifications notices={notices} onOpen={(id) => id ? openAuction(id) : undefined} />}
 
       {screen === "detail" && selected && (
-        <AuctionDetail currentUser={currentUser} auction={selected} bids={selectedBids} now={now} onBack={() => navigate("home")} onFavorite={() => toggleFavorite(selected.id)} onBid={(amount) => placeBid(selected.id, amount)} />
+        <AuctionDetail currentUser={currentUser} auction={selected} bids={selectedBids} now={now} onBack={() => navigate("home")} onFavorite={() => toggleFavorite(selected.id)} onBid={(amount) => placeBid(selected.id, amount)} onSeller={() => openSeller(selected.sellerId)} />
       )}
 
-      {screen !== "detail" && screen !== "notifications" && screen !== "myListings" && (
+      {screen !== "detail" && screen !== "notifications" && screen !== "myListings" && screen !== "orders" && screen !== "sellerCenter" && screen !== "security" && screen !== "support" && screen !== "sellerProfile" && screen !== "admin" && (
         <nav className="bottom-nav">
           <NavButton icon="⌂" label="Ana Sayfa" active={screen === "home"} onClick={() => navigate("home")} />
           <NavButton icon="♡" label="Favoriler" active={screen === "favorites"} onClick={() => navigate("favorites")} />
@@ -659,7 +863,7 @@ export default function Home() {
         </nav>
       )}
 
-      {(screen === "notifications" || screen === "myListings") && <button className="floating-back" onClick={() => navigate("profile")}>← Geri</button>}
+      {(screen === "notifications" || screen === "myListings" || screen === "orders" || screen === "sellerCenter" || screen === "security" || screen === "support" || screen === "sellerProfile" || screen === "admin") && <button className="floating-back" onClick={() => screen === "sellerProfile" ? navigate("detail") : navigate("profile")}>← Geri</button>}
       {toast && <div className="toast">{toast}</div>}
     </main>
   );
@@ -745,7 +949,7 @@ function AuctionGrid({ auctions, now, onOpen, onFavorite, empty }: { auctions: A
   );
 }
 
-function AuctionDetail({ currentUser, auction, bids, now, onBack, onFavorite, onBid }: { currentUser: AppUser; auction: Auction; bids: Bid[]; now: number; onBack: () => void; onFavorite: () => void; onBid: (amount: number) => void }) {
+function AuctionDetail({ currentUser, auction, bids, now, onBack, onFavorite, onBid, onSeller }: { currentUser: AppUser; auction: Auction; bids: Bid[]; now: number; onBack: () => void; onFavorite: () => void; onBid: (amount: number) => void; onSeller: () => void }) {
   const [amount, setAmount] = useState(auction.currentBid + auction.minIncrement);
   const [tab, setTab] = useState<"detail" | "bids">("detail");
   const ended = isEnded(auction, now);
@@ -759,7 +963,7 @@ function AuctionDetail({ currentUser, auction, bids, now, onBack, onFavorite, on
       <div className="detail-content">
         <div className="detail-topline"><span className="category-label">{auction.category}</span><span>İlan #{auction.id}</span></div>
         <h1>{auction.title}</h1>
-        <div className="seller-row"><span className="avatar">{auction.seller.charAt(0)}</span><div><strong>{auction.seller} {auction.verified && <em>✓</em>}</strong><small>{auction.city} · {auction.verified ? "Kimliği doğrulanmış satıcı" : "Doğrulama bekliyor"}</small></div><span className="condition">{auction.condition}</span></div>
+        <button className="seller-row seller-link" onClick={onSeller}><span className="avatar">{auction.seller.charAt(0)}</span><div><strong>{auction.seller} {auction.verified && <em>✓</em>}</strong><small>{auction.city} · ★ {sellerScore(auction.sellerId).rating.toFixed(1)} · {sellerScore(auction.sellerId).count} değerlendirme</small></div><span className="condition">{auction.condition} ›</span></button>
 
         <div className="bid-summary"><div><small>Güncel teklif</small><strong>{money.format(auction.currentBid)}</strong></div><div><small>Teklif sayısı</small><strong>{auction.bidCount}</strong></div></div>
         <div className={reserveMet ? "reserve-status met" : "reserve-status"}><span>{reserveMet ? "✓" : "○"}</span><div><strong>{reserveMet ? "Gizli taban fiyat aşıldı" : "Gizli taban fiyat henüz aşılmadı"}</strong><small>Satış yalnızca satıcının belirlediği minimum değer aşılırsa tamamlanır.</small></div></div>
@@ -774,7 +978,7 @@ function AuctionDetail({ currentUser, auction, bids, now, onBack, onFavorite, on
 
         <div className="bid-box">
           <label>Teklif tutarın</label>
-          <div className="quick-bids"><button onClick={() => setAmount(auction.currentBid + auction.minIncrement)}>+{money.format(auction.minIncrement)}</button><button onClick={() => setAmount(auction.currentBid + auction.minIncrement * 2)}>+{money.format(auction.minIncrement * 2)}</button><button onClick={() => setAmount(auction.currentBid + auction.minIncrement * 4)}>+{money.format(auction.minIncrement * 4)}</button></div>
+          <div className="quick-bids"><button onClick={() => setAmount((current) => current + auction.minIncrement)}>+{money.format(auction.minIncrement)}</button><button onClick={() => setAmount((current) => current + auction.minIncrement * 2)}>+{money.format(auction.minIncrement * 2)}</button><button onClick={() => setAmount((current) => current + auction.minIncrement * 4)}>+{money.format(auction.minIncrement * 4)}</button></div>
           <div className="bid-input"><span>₺</span><input type="number" value={amount} min={auction.currentBid + auction.minIncrement} onChange={(e) => setAmount(Number(e.target.value))} /></div>
           <small>Minimum teklif: {money.format(auction.currentBid + auction.minIncrement)} · Son 2 dakikadaki teklifler süreyi 2 dakika uzatır.</small>
           <button disabled={ended} onClick={() => onBid(amount)}>{ended ? "Açık artırma sona erdi" : "Teklif Ver"}</button>
@@ -784,7 +988,7 @@ function AuctionDetail({ currentUser, auction, bids, now, onBack, onFavorite, on
   );
 }
 
-function SellForm({ currentUser, onCreate, onCancel }: { currentUser: AppUser; onCreate: (data: Omit<Auction, "id" | "bidCount" | "favorite" | "createdAt">) => void | Promise<void>; onCancel: () => void }) {
+function SellForm({ currentUser, liveMode, onCreate, onCancel }: { currentUser: AppUser; liveMode: boolean; onCreate: (data: Omit<Auction, "id" | "bidCount" | "favorite" | "createdAt">) => void | Promise<void>; onCancel: () => void }) {
   const [step, setStep] = useState(1);
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState("Telefon");
@@ -795,6 +999,7 @@ function SellForm({ currentUser, onCreate, onCancel }: { currentUser: AppUser; o
   const [condition, setCondition] = useState<Condition>("İyi");
   const [description, setDescription] = useState("");
   const [city, setCity] = useState(currentUser.city);
+  const [shipping, setShipping] = useState("Param Güvende Kargo");
   const [image, setImage] = useState("");
 
   function handlePhoto(event: ChangeEvent<HTMLInputElement>) {
@@ -824,7 +1029,7 @@ function SellForm({ currentUser, onCreate, onCancel }: { currentUser: AppUser; o
       description: description.trim() || "Ürün açıklaması henüz eklenmedi.",
       minIncrement,
       reservePrice: Math.max(reservePrice, price),
-      shipping: "Param Güvende Kargo",
+      shipping,
       paymentHold: true,
     });
   }
@@ -850,10 +1055,10 @@ function SellForm({ currentUser, onCreate, onCancel }: { currentUser: AppUser; o
         </>}
         {step === 3 && <>
           <ScreenTitle title="Teslimat ve ön izleme" text="İlanını son kez kontrol edip yayınla." />
-          <label>Ürün konumu<input value={city} onChange={(e) => setCity(e.target.value)} /></label>
+          <div className="form-grid"><label>Ürün konumu<input value={city} onChange={(e) => setCity(e.target.value)} /></label><label>Teslimat<select value={shipping} onChange={(e) => setShipping(e.target.value)}><option>Param Güvende Kargo</option><option>Ücretsiz kargo</option><option>Satıcı ödemeli kargo</option><option>Yüz yüze teslimat</option></select></label></div>
           <div className="preview-card"><img src={image || (category === "Telefon" ? "/products/iphone.svg" : category === "Bilgisayar" ? "/products/macbook.svg" : category === "Oyun" ? "/products/ps5.svg" : "/products/dyson.svg")} alt="" /><div><span className="category-label">{category}</span><h3>{title || "İlan başlığı"}</h3><small>Başlangıç</small><strong>{money.format(price)}</strong></div></div>
-          <div className="summary-list"><div><span>Gizli taban fiyat</span><strong>{money.format(Math.max(reservePrice, price))}</strong></div><div><span>Minimum artış</span><strong>{money.format(minIncrement)}</strong></div><div><span>Açık artırma süresi</span><strong>{hours < 24 ? `${hours} saat` : `${hours / 24} gün`}</strong></div><div><span>Ödeme</span><strong>Korumalı hesap</strong></div></div>
-          <div className="info-box">Bu demo sürümünde ilan tarayıcının yerel hafızasına kaydedilir. Supabase bağlandığında tüm kullanıcılar ilanı aynı anda görecek.</div>
+          <div className="summary-list"><div><span>Gizli taban fiyat</span><strong>{money.format(Math.max(reservePrice, price))}</strong></div><div><span>Minimum artış</span><strong>{money.format(minIncrement)}</strong></div><div><span>Açık artırma süresi</span><strong>{hours < 24 ? `${hours} saat` : `${hours / 24} gün`}</strong></div><div><span>Teslimat</span><strong>{shipping}</strong></div><div><span>Tahmini hizmet bedeli</span><strong>{money.format(Math.max(reservePrice, price) * 0.075)}</strong></div><div><span>Tahmini net kazanç</span><strong>{money.format(Math.max(reservePrice, price) * 0.925)}</strong></div></div>
+          <div className="info-box">{liveMode ? "İlan Supabase veritabanında yayınlanacak ve tüm kullanıcılara gösterilecek." : "İlan demo verisine kaydedilecek. Canlı bağlantı açıldığında aynı akış Supabase üzerinde çalışacak."}</div>
         </>}
         <div className="form-actions">{step > 1 && <button type="button" className="secondary-button" onClick={() => setStep((value) => value - 1)}>Geri</button>}{step < 3 ? <button type="button" className="primary-button" onClick={() => setStep((value) => value + 1)}>Devam Et</button> : <button className="primary-button" type="submit">İlanı Yayınla</button>}</div>
       </form>
@@ -886,8 +1091,86 @@ function MyListings({ auctions, now, onOpen }: { auctions: Auction[]; now: numbe
   return <section className="page standalone-page"><ScreenTitle title="İlanlarım" text="Yayındaki ve tamamlanan açık artırmaların" /><div className="tracking-list">{auctions.map((auction) => <button key={auction.id} onClick={() => onOpen(auction.id)}><img src={auction.image} alt="" /><div><h3>{auction.title}</h3><small>{auction.bidCount} teklif · {money.format(auction.currentBid)}</small><span>{isEnded(auction, now) ? "Sona erdi" : `${remaining(auction.endsAt, now)} kaldı`}</span></div><b className="status winning">Yayında</b></button>)}{auctions.length === 0 && <EmptyState icon="◫" title="Henüz ilanın yok" text="İlan Ver düğmesinden ilk açık artırmanı oluştur." />}</div></section>;
 }
 
-function Profile({ currentUser, liveMode, onListings, onBids, onReset, onSignOut }: { currentUser: AppUser; liveMode: boolean; onListings: () => void; onBids: () => void; onReset: () => void; onSignOut: () => void | Promise<void> }) {
-  return <section className="page"><div className="profile-card"><div className="large-avatar">{currentUser.initials}</div><div><h1>{currentUser.name}</h1><p>{liveMode ? currentUser.email : "Kimlik ve telefon doğrulandı ✓"}</p></div><span className="profile-level">{liveMode ? "Supabase Kullanıcısı" : "Güvenilir Satıcı"}</span></div><div className="stats"><div><strong>{liveMode ? "Canlı" : "4.9"}</strong><small>{liveMode ? "Veritabanı" : "Satıcı puanı"}</small></div><div><strong>{liveMode ? "RLS" : "12"}</strong><small>{liveMode ? "Güvenlik" : "Satış"}</small></div><div><strong>{liveMode ? "Aktif" : "27"}</strong><small>{liveMode ? "Oturum" : "Teklif"}</small></div></div><div className="wallet-card"><div><span>Kullanılabilir bakiye</span><strong>{money.format(liveMode ? 0 : 12450)}</strong></div><button disabled={liveMode}>Bakiyeyi çek</button></div><div className="menu-list"><button onClick={onListings}><span>◫</span>İlanlarım<b>›</b></button><button onClick={onBids}><span>⇄</span>Tekliflerim<b>›</b></button><button><span>₺</span>Ödemelerim<b>›</b></button><button><span>▣</span>Adreslerim<b>›</b></button><button><span>⚙</span>Ayarlar<b>›</b></button><button><span>?</span>Yardım ve destek<b>›</b></button>{liveMode ? <button className="danger-row" onClick={onSignOut}><span>↪</span>Çıkış yap<b>›</b></button> : <button className="danger-row" onClick={onReset}><span>↻</span>Demo verilerini sıfırla<b>›</b></button>}</div></section>;
+function Profile({ currentUser, liveMode, onListings, onBids, onOrders, onSellerCenter, onSecurity, onSupport, showAdmin, onAdmin, onReset, onSignOut }: { currentUser: AppUser; liveMode: boolean; onListings: () => void; onBids: () => void; onOrders: () => void; onSellerCenter: () => void; onSecurity: () => void; onSupport: () => void; showAdmin: boolean; onAdmin: () => void; onReset: () => void; onSignOut: () => void | Promise<void> }) {
+  return <section className="page"><div className="profile-card"><div className="large-avatar">{currentUser.initials}</div><div><h1>{currentUser.name}</h1><p>{liveMode ? currentUser.email : "Kimlik ve telefon doğrulandı ✓"}</p></div><span className="profile-level">{liveMode ? "Supabase Kullanıcısı" : "Güvenilir Satıcı"}</span></div><div className="stats"><div><strong>{liveMode ? "Canlı" : "4.9"}</strong><small>{liveMode ? "Veritabanı" : "Satıcı puanı"}</small></div><div><strong>{liveMode ? "RLS" : "12"}</strong><small>{liveMode ? "Güvenlik" : "Tamamlanan satış"}</small></div><div><strong>{liveMode ? "Aktif" : "27"}</strong><small>{liveMode ? "Oturum" : "Verilen teklif"}</small></div></div><div className="wallet-card"><div><span>Kullanılabilir bakiye</span><strong>{money.format(liveMode ? 0 : 12450)}</strong></div><button disabled={liveMode}>Bakiyeyi çek</button></div><div className="menu-list"><button onClick={onSellerCenter}><span>▤</span>Satış Merkezi<b>›</b></button><button onClick={onOrders}><span>📦</span>Siparişlerim<b>›</b></button><button onClick={onListings}><span>◫</span>İlanlarım<b>›</b></button><button onClick={onBids}><span>⇄</span>Tekliflerim<b>›</b></button><button onClick={onSecurity}><span>🛡</span>Hesap ve güvenlik<b>›</b></button><button onClick={onSupport}><span>?</span>Yardım ve destek<b>›</b></button>{showAdmin && <button onClick={onAdmin}><span>⚙</span>Yönetim paneli<b>›</b></button>}{liveMode ? <button className="danger-row" onClick={onSignOut}><span>↪</span>Çıkış yap<b>›</b></button> : <button className="danger-row" onClick={onReset}><span>↻</span>Demo verilerini sıfırla<b>›</b></button>}</div></section>;
+}
+
+function orderLabel(order: Order) {
+  if (order.shipmentStatus === "disputed") return "İtiraz açıldı";
+  if (order.shipmentStatus === "approved" || order.paymentStatus === "released") return "Tamamlandı";
+  if (order.shipmentStatus === "delivered") return "Teslim edildi";
+  if (order.shipmentStatus === "shipped") return "Kargoda";
+  if (order.shipmentStatus === "prepared") return "Kargoya hazırlanıyor";
+  if (order.paymentStatus === "pending") return "Ödeme bekleniyor";
+  return "Satıcıdan gönderim bekleniyor";
+}
+
+function orderProgress(order: Order) {
+  if (order.shipmentStatus === "approved" || order.paymentStatus === "released") return 4;
+  if (order.shipmentStatus === "delivered") return 3;
+  if (order.shipmentStatus === "shipped") return 2;
+  if (order.paymentStatus === "held" || order.shipmentStatus === "prepared") return 1;
+  return 0;
+}
+
+function OrdersScreen({ currentUser, orders, auctions, liveMode, onOpen, onAdvance }: { currentUser: AppUser; orders: Order[]; auctions: Auction[]; liveMode: boolean; onOpen: (id: string) => void; onAdvance: (id: string) => void }) {
+  const [tab, setTab] = useState<"buy" | "sell">("buy");
+  const filteredOrders = orders.filter((order) => tab === "buy" ? order.buyerId === currentUser.id : order.sellerId === currentUser.id);
+  return <section className="page standalone-page"><ScreenTitle title="Siparişlerim" text="Kazandığın ürünlerin ve tamamlanan satışların ödeme-kargo akışı" /><div className="segmented"><button className={tab === "buy" ? "active" : ""} onClick={() => setTab("buy")}>Alımlarım</button><button className={tab === "sell" ? "active" : ""} onClick={() => setTab("sell")}>Satışlarım</button></div><div className="order-list">{filteredOrders.map((order) => {
+    const auction = auctions.find((item) => item.id === order.auctionId);
+    if (!auction) return null;
+    const progress = orderProgress(order);
+    const isBuyer = order.buyerId === currentUser.id;
+    let action = "";
+    if (order.paymentStatus === "pending" && isBuyer) action = "Ödemeyi tamamla";
+    else if (order.shipmentStatus === "waiting" && !isBuyer) action = "Siparişi hazırla";
+    else if (order.shipmentStatus === "prepared" && !isBuyer) action = "Kargoya ver";
+    else if (order.shipmentStatus === "shipped" && isBuyer) action = "Teslim aldım";
+    else if (order.shipmentStatus === "delivered" && isBuyer) action = "Ürünü onayla";
+    return <article className="order-card" key={order.id}><button className="order-main" onClick={() => onOpen(auction.id)}><img src={auction.image} alt="" /><div><span className="order-status">{orderLabel(order)}</span><h3>{auction.title}</h3><small>{isBuyer ? `Satıcı: ${auction.seller}` : "Korumalı satış"}</small><strong>{money.format(order.amount)}</strong></div><b>›</b></button><div className="order-steps">{["Ödeme", "Hazırlık", "Kargo", "Onay"].map((label, index) => <div className={index < progress ? "done" : index === progress ? "current" : ""} key={label}><span>{index < progress ? "✓" : index + 1}</span><small>{label}</small></div>)}</div>{order.trackingNumber && <div className="tracking-code"><span>{order.carrier || "Kargo"}</span><strong>{order.trackingNumber}</strong></div>}{action && <button className="order-action" onClick={() => onAdvance(order.id)}>{action}</button>}{liveMode && <small className="live-note">Canlı ödeme/kargo işlemleri ödeme sağlayıcısı bağlandığında aktif olacak.</small>}</article>;
+  })}{filteredOrders.length === 0 && <EmptyState icon="📦" title="Henüz sipariş yok" text={tab === "buy" ? "Kazandığın açık artırmalar burada görünecek." : "Tamamlanan satışların burada görünecek."} />}</div></section>;
+}
+
+function SellerCenter({ currentUser, auctions, orders, now, onOpen, onSell }: { currentUser: AppUser; auctions: Auction[]; orders: Order[]; now: number; onOpen: (id: string) => void; onSell: () => void }) {
+  const mine = auctions.filter((auction) => auction.sellerId === currentUser.id);
+  const active = mine.filter((auction) => !isEnded(auction, now));
+  const sales = orders.filter((order) => order.sellerId === currentUser.id);
+  const turnover = sales.reduce((total, order) => total + order.amount, 0);
+  const fees = turnover * 0.075;
+  return <section className="page standalone-page"><div className="seller-hero"><div><span>SATICI PANELİ</span><h1>Satış Merkezi</h1><p>İlan performansı, sipariş ve tahmini kazançların tek ekranda.</p></div><button onClick={onSell}>＋ Yeni ilan</button></div><div className="seller-metrics"><div><span>Aktif ilan</span><strong>{active.length}</strong><small>{mine.reduce((sum, item) => sum + item.bidCount, 0)} toplam teklif</small></div><div><span>Brüt satış</span><strong>{money.format(turnover)}</strong><small>{sales.length} sipariş</small></div><div><span>Tahmini net</span><strong>{money.format(turnover - fees)}</strong><small>{money.format(fees)} hizmet bedeli</small></div></div><div className="insight-card"><span>💡</span><div><strong>Satış önerisi</strong><p>Net fotoğraf, detaylı kusur açıklaması ve piyasanın %15 altında başlangıç fiyatı daha fazla teklif getirir.</p></div></div><div className="section-heading"><div><strong>İlan performansı</strong></div><span>{mine.length} ilan</span></div><div className="tracking-list">{mine.map((auction) => <button key={auction.id} onClick={() => onOpen(auction.id)}><img src={auction.image} alt="" /><div><h3>{auction.title}</h3><small>{auction.bidCount} teklif · {money.format(auction.currentBid)}</small><span>{isEnded(auction, now) ? "Tamamlandı" : `${remaining(auction.endsAt, now)} kaldı`}</span></div><b className={isEnded(auction, now) ? "status outbid" : "status winning"}>{isEnded(auction, now) ? "Sonuçlandı" : "Yayında"}</b></button>)}{mine.length === 0 && <EmptyState icon="▤" title="Henüz satış verisi yok" text="İlk açık artırmanı oluşturarak satış merkezini kullanmaya başla." />}</div></section>;
+}
+
+function SecurityCenter({ liveMode }: { liveMode: boolean }) {
+  return <section className="page standalone-page"><ScreenTitle title="Hesap ve güvenlik" text="Teklif ve satış işlemleri için doğrulama durumun" /><div className="security-score"><div><span>Güvenlik puanı</span><strong>{liveMode ? "%60" : "%92"}</strong><small>{liveMode ? "Telefon ve kimlik doğrulaması sırada" : "Hesabın güçlü şekilde korunuyor"}</small></div><div className="score-ring">{liveMode ? "60" : "92"}</div></div><div className="security-list"><article><span>✓</span><div><strong>E-posta doğrulaması</strong><p>Hesap iletişimi ve giriş kurtarma için kullanılır.</p></div><b>Tamamlandı</b></article><article><span>{liveMode ? "2" : "✓"}</span><div><strong>Telefon doğrulaması</strong><p>Yüksek tutarlı tekliflerde ek güvenlik sağlar.</p></div><b>{liveMode ? "Bekliyor" : "Tamamlandı"}</b></article><article><span>{liveMode ? "3" : "✓"}</span><div><strong>Kimlik doğrulaması</strong><p>Satıcı rozeti ve para çekme işlemleri için zorunludur.</p></div><b>{liveMode ? "Başlat" : "Tamamlandı"}</b></article><article><span>4</span><div><strong>İki aşamalı giriş</strong><p>Yeni cihaz girişlerinde tek kullanımlık kod ister.</p></div><b>Etkinleştir</b></article></div><div className="protection-card"><span>🛡️</span><div><strong>Korumalı ödeme</strong><p>Alıcı ödemesi ürün teslim edilip onaylanana kadar satıcıya aktarılmaz.</p></div></div></section>;
+}
+
+function SupportCenter() {
+  const [open, setOpen] = useState(0);
+  const faqs = [
+    ["Teklif verdikten sonra vazgeçebilir miyim?", "Açık artırma teklifleri bağlayıcıdır. Hatalı işlem durumunda destek kaydı açılır ve işlem geçmişi incelenir."],
+    ["Gizli taban fiyat ne demek?", "Satıcının satışın gerçekleşmesi için belirlediği minimum tutardır. Rakam alıcılara gösterilmez."],
+    ["Ödeme satıcıya ne zaman geçer?", "Ürün teslim edilip alıcı tarafından onaylandığında güvenli hesaptaki tutar satıcı bakiyesine aktarılır."],
+    ["Ürün anlatıldığı gibi değilse ne olur?", "Teslimattan sonra onay vermeden itiraz açılır; ödeme inceleme tamamlanana kadar bloke kalır."],
+  ];
+  return <section className="page standalone-page"><ScreenTitle title="Yardım ve destek" text="Açık artırma, ödeme ve teslimatla ilgili hızlı cevaplar" /><div className="support-actions"><button><span>💬</span><strong>Canlı destek</strong><small>09.00–23.00</small></button><button><span>📝</span><strong>Destek kaydı</strong><small>Ortalama 2 saat</small></button><button><span>⚠️</span><strong>İtiraz merkezi</strong><small>Ödeme koruması</small></button></div><div className="faq-list">{faqs.map(([question, answer], index) => <button className={open === index ? "open" : ""} key={question} onClick={() => setOpen(open === index ? -1 : index)}><div><strong>{question}</strong><span>{open === index ? "−" : "+"}</span></div>{open === index && <p>{answer}</p>}</button>)}</div><div className="support-banner"><strong>Acil güvenlik sorunu mu var?</strong><p>Şüpheli ödeme talebi, sahte ürün veya hesap ele geçirme durumunda işlem yapmadan destek kaydı oluştur.</p><button>Güvenlik bildirimi oluştur</button></div></section>;
+}
+
+function SellerProfile({ sellerId, auctions, now, onOpen }: { sellerId: string; auctions: Auction[]; now: number; onOpen: (id: string) => void }) {
+  const sellerAuctions = auctions.filter((auction) => auction.sellerId === sellerId);
+  const seller = sellerAuctions[0];
+  const reviews = seedReviews.filter((review) => review.sellerId === sellerId);
+  const score = sellerScore(sellerId);
+  const sellerName = seller?.seller || "AçıkPazar Satıcısı";
+  const sellerCity = seller?.city || "Türkiye";
+  return <section className="page standalone-page"><div className="seller-profile-head"><div className="seller-avatar-large">{sellerName.charAt(0)}</div><div><span className="verified-line">✓ Kimliği doğrulanmış satıcı</span><h1>{sellerName}</h1><p>{sellerCity} · 2024'ten beri üye</p></div><button>Satıcıyı takip et</button></div><div className="seller-score-grid"><div><strong>{score.rating.toFixed(1)}</strong><span>★★★★★</span><small>{score.count} değerlendirme</small></div><div><strong>{score.sales}</strong><span>Tamamlanan satış</span><small>%96 zamanında kargo</small></div><div><strong>2 sa</strong><span>Ortalama cevap</span><small>Son 24 saatte aktif</small></div></div><div className="seller-guarantees"><span>🪪 Kimlik doğrulandı</span><span>📦 Kargo performansı yüksek</span><span>🛡️ Korumalı ödeme</span></div><div className="section-heading"><div><strong>Satıcının ilanları</strong></div><span>{sellerAuctions.length} ilan</span></div><AuctionGrid auctions={sellerAuctions} now={now} onOpen={onOpen} onFavorite={() => undefined} empty={<EmptyState icon="◫" title="Aktif ilan yok" text="Bu satıcının şu anda açık artırması bulunmuyor." />} /><div className="section-heading review-heading"><div><strong>Alıcı değerlendirmeleri</strong></div><span>★ {score.rating.toFixed(1)}</span></div><div className="review-list">{reviews.length ? reviews.map((review) => <article key={review.id}><div><span className="review-avatar">{review.reviewer.charAt(0)}</span><div><strong>{review.reviewer}</strong><small>{review.product} · {dateTime.format(new Date(review.createdAt))}</small></div><b>{"★".repeat(review.rating)}{"☆".repeat(5 - review.rating)}</b></div><p>{review.text}</p></article>) : <EmptyState icon="★" title="Henüz değerlendirme yok" text="İlk tamamlanan satıştan sonra alıcı yorumları burada görünecek." />}</div></section>;
+}
+
+function AdminPanel({ auctions, bids, orders, moderation, onModerate, onOpen }: { auctions: Auction[]; bids: Bid[]; orders: Order[]; moderation: Record<string, ModerationStatus>; onModerate: (id: string, status: ModerationStatus) => void; onOpen: (id: string) => void }) {
+  const reviewQueue = auctions.filter((auction) => moderation[auction.id] === "pending");
+  const approved = Object.values(moderation).filter((status) => status === "approved").length;
+  const rejected = Object.values(moderation).filter((status) => status === "rejected").length;
+  const volume = bids.reduce((sum, bid) => sum + bid.amount, 0);
+  return <section className="page standalone-page"><div className="admin-hero"><div><span>YÖNETİM MERKEZİ</span><h1>AçıkPazar Kontrol Paneli</h1><p>İlan güvenliği, kullanıcı hareketleri ve platform performansı.</p></div><b>Kurucu erişimi</b></div><div className="admin-metrics"><article><span>Aktif ilan</span><strong>{auctions.filter((auction) => !isEnded(auction, Date.now())).length}</strong><small>{reviewQueue.length} inceleme bekliyor</small></article><article><span>Teklif hacmi</span><strong>{money.format(volume)}</strong><small>{bids.length} teklif hareketi</small></article><article><span>Korumalı sipariş</span><strong>{orders.length}</strong><small>{money.format(orders.reduce((sum, order) => sum + order.amount, 0))} toplam</small></article><article><span>Moderasyon</span><strong>{approved}/{rejected}</strong><small>Onaylanan / reddedilen</small></article></div><div className="admin-grid"><section><div className="section-heading"><div><span className="live-dot" /><strong>İnceleme kuyruğu</strong></div><span>{reviewQueue.length} ilan</span></div><div className="moderation-list">{reviewQueue.map((auction) => <article key={auction.id}><button className="moderation-main" onClick={() => onOpen(auction.id)}><img src={auction.image} alt="" /><div><span>{auction.category} · {auction.city}</span><h3>{auction.title}</h3><small>{auction.seller} · {money.format(auction.startingBid)} başlangıç</small></div><b>›</b></button><div className="moderation-flags"><span>Yeni satıcı</span><span>Yüksek tutar</span><span>Görsel kontrolü</span></div><div className="moderation-actions"><button onClick={() => onModerate(auction.id, "rejected")}>Reddet</button><button onClick={() => onModerate(auction.id, "approved")}>Onayla</button></div></article>)}{reviewQueue.length === 0 && <EmptyState icon="✓" title="Kuyruk temiz" text="İnceleme bekleyen ilan bulunmuyor." />}</div></section><aside><div className="risk-card"><span>🛡️</span><div><strong>Risk özeti</strong><p>Son 24 saatte kritik güvenlik olayı bulunmuyor.</p></div></div><div className="admin-feed"><strong>Son sistem hareketleri</strong><p><span>✓</span> Kimlik doğrulama servisi aktif</p><p><span>✓</span> Teklif RPC kontrolü çalışıyor</p><p><span>!</span> Ödeme sağlayıcısı bağlantısı bekliyor</p><p><span>!</span> Kargo API entegrasyonu bekliyor</p></div></aside></div></section>;
 }
 
 function ScreenTitle({ title, text }: { title: string; text: string }) { return <div className="screen-title"><h1>{title}</h1><p>{text}</p></div>; }
