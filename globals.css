@@ -40,7 +40,9 @@ type Screen =
   | "coupons"
   | "auctionResults"
   | "disputes"
-  | "reviews";
+  | "reviews"
+  | "savedSearches"
+  | "sellerAnalytics";
 type Condition = "Sıfır" | "Çok iyi" | "İyi" | "Orta";
 type PaymentStatus = "pending" | "held" | "released" | "refunded";
 type ShipmentStatus =
@@ -187,6 +189,19 @@ type Coupon = {
   used: boolean;
 };
 
+type SavedSearch = {
+  id: string;
+  name: string;
+  query: string;
+  category: string;
+  condition: string;
+  city: string;
+  maxPrice: number;
+  endingFilter: string;
+  notify: boolean;
+  createdAt: string;
+};
+
 type StoredState = {
   auctions: Auction[];
   bids: Bid[];
@@ -203,6 +218,7 @@ type StoredState = {
   reviews: Review[];
   disputes: Dispute[];
   finalizedAuctionIds: string[];
+  savedSearches: SavedSearch[];
 };
 
 type AppUser = {
@@ -702,6 +718,21 @@ const seedDisputes: Dispute[] = [
 
 const seedFinalizedAuctionIds = ["7", "8"];
 
+const seedSavedSearches: SavedSearch[] = [
+  {
+    id: "search-iphone-izmir",
+    name: "İzmir · Telefon · 30.000 TL altı",
+    query: "iPhone",
+    category: "Telefon",
+    condition: "Tümü",
+    city: "İzmir",
+    maxPrice: 30000,
+    endingFilter: "24",
+    notify: true,
+    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 18).toISOString(),
+  },
+];
+
 const seedMessages: ChatMessage[] = [
   {
     id: "m1",
@@ -787,9 +818,11 @@ function safeRead(): StoredState {
     reviews: seedReviews,
     disputes: seedDisputes,
     finalizedAuctionIds: seedFinalizedAuctionIds,
+    savedSearches: seedSavedSearches,
   };
   if (typeof window === "undefined") return defaults;
   const raw =
+    window.localStorage.getItem("acikpazar-v10") ||
     window.localStorage.getItem("acikpazar-v9") ||
     window.localStorage.getItem("acikpazar-v8") ||
     window.localStorage.getItem("acikpazar-v7") ||
@@ -838,10 +871,13 @@ function safeRead(): StoredState {
       finalizedAuctionIds: Array.isArray(parsed.finalizedAuctionIds)
         ? parsed.finalizedAuctionIds
         : seedFinalizedAuctionIds,
+      savedSearches: Array.isArray(parsed.savedSearches)
+        ? parsed.savedSearches
+        : seedSavedSearches,
     };
   } catch {
     [
-      "acikpazar-v9",
+      "acikpazar-v10",
       "acikpazar-v9",
       "acikpazar-v7",
       "acikpazar-v6",
@@ -926,6 +962,8 @@ export default function Home() {
   const [finalizedAuctionIds, setFinalizedAuctionIds] = useState<string[]>(
     seedFinalizedAuctionIds,
   );
+  const [savedSearches, setSavedSearches] =
+    useState<SavedSearch[]>(seedSavedSearches);
   const [selectedOrderId, setSelectedOrderId] = useState("");
   const [selectedConversationId, setSelectedConversationId] = useState("");
   const [selectedId, setSelectedId] = useState(liveMode ? "" : "1");
@@ -1106,6 +1144,7 @@ export default function Home() {
       setReviews(stored.reviews);
       setDisputes(stored.disputes);
       setFinalizedAuctionIds(stored.finalizedAuctionIds);
+      setSavedSearches(stored.savedSearches);
       setHydrated(true);
       return () => window.clearInterval(interval);
     }
@@ -1164,7 +1203,7 @@ export default function Home() {
   useEffect(() => {
     if (!hydrated || supabase) return;
     window.localStorage.setItem(
-      "acikpazar-v8",
+      "acikpazar-v10",
       JSON.stringify({
         auctions,
         bids,
@@ -1181,6 +1220,7 @@ export default function Home() {
         reviews,
         disputes,
         finalizedAuctionIds,
+        savedSearches,
       }),
     );
   }, [
@@ -1199,6 +1239,7 @@ export default function Home() {
     reviews,
     disputes,
     finalizedAuctionIds,
+    savedSearches,
     hydrated,
     supabase,
   ]);
@@ -1370,6 +1411,22 @@ export default function Home() {
     maxPrice > 0,
     endingFilter !== "Tümü",
   ].filter(Boolean).length;
+
+  const searchSuggestions = useMemo(() => {
+    const clean = query.trim().toLocaleLowerCase("tr");
+    if (clean.length < 2) return [];
+    return Array.from(
+      new Set(
+        auctions.flatMap((auction) => [
+          auction.title,
+          auction.category,
+          `${auction.category} · ${auction.city}`,
+        ]),
+      ),
+    )
+      .filter((item) => item.toLocaleLowerCase("tr").includes(clean))
+      .slice(0, 6);
+  }, [auctions, query]);
 
   const filtered = useMemo(() => {
     const list = auctions.filter((auction) => {
@@ -1723,6 +1780,65 @@ export default function Home() {
     setCityFilter("Tümü");
     setMaxPrice(0);
     setEndingFilter("Tümü");
+  }
+
+  function saveCurrentSearch() {
+    const hasCriteria =
+      query.trim() ||
+      category !== "Tümü" ||
+      conditionFilter !== "Tümü" ||
+      cityFilter !== "Tümü" ||
+      maxPrice > 0 ||
+      endingFilter !== "Tümü";
+    if (!hasCriteria) {
+      setToast("Kaydetmek için önce arama veya filtre seç.");
+      return;
+    }
+    const parts = [
+      query.trim(),
+      category !== "Tümü" ? category : "",
+      cityFilter !== "Tümü" ? cityFilter : "",
+      maxPrice > 0 ? `${money.format(maxPrice)} altı` : "",
+    ].filter(Boolean);
+    const item: SavedSearch = {
+      id: `saved-search-${Date.now()}`,
+      name: parts.join(" · ") || "Kaydedilmiş arama",
+      query: query.trim(),
+      category,
+      condition: conditionFilter,
+      city: cityFilter,
+      maxPrice,
+      endingFilter,
+      notify: true,
+      createdAt: new Date().toISOString(),
+    };
+    setSavedSearches((items) => [item, ...items]);
+    setToast("Arama kaydedildi; yeni ilanlar için bildirim açıldı.");
+  }
+
+  function applySavedSearch(item: SavedSearch) {
+    setQuery(item.query);
+    setCategory(item.category);
+    setConditionFilter(item.condition);
+    setCityFilter(item.city);
+    setMaxPrice(item.maxPrice);
+    setEndingFilter(item.endingFilter);
+    setFilterOpen(true);
+    navigate("home");
+    setToast("Kaydedilmiş arama uygulandı.");
+  }
+
+  function toggleSavedSearchNotification(id: string) {
+    setSavedSearches((items) =>
+      items.map((item) =>
+        item.id === id ? { ...item, notify: !item.notify } : item,
+      ),
+    );
+  }
+
+  function deleteSavedSearch(id: string) {
+    setSavedSearches((items) => items.filter((item) => item.id !== id));
+    setToast("Kaydedilmiş arama silindi.");
   }
 
   function moderateAuction(id: string, status: ModerationStatus) {
@@ -2251,6 +2367,8 @@ export default function Home() {
     setReviews(seedReviews);
     setDisputes(seedDisputes);
     setFinalizedAuctionIds(seedFinalizedAuctionIds);
+    setSavedSearches(seedSavedSearches);
+    window.localStorage.removeItem("acikpazar-v10");
     window.localStorage.removeItem("acikpazar-v9");
     window.localStorage.removeItem("acikpazar-v8");
     window.localStorage.removeItem("acikpazar-v7");
@@ -2287,6 +2405,7 @@ export default function Home() {
     setReviews([]);
     setDisputes([]);
     setFinalizedAuctionIds([]);
+    setSavedSearches([]);
     setCurrentUser(DEMO_USER);
     navigate("home");
   }
@@ -2361,7 +2480,7 @@ export default function Home() {
           </button>
           <div className="topbar-actions">
             <span className={liveMode ? "demo-pill live" : "demo-pill"}>
-              ● {liveMode ? "SUPABASE CANLI" : "DEMO 9"}
+              ● {liveMode ? "SUPABASE CANLI" : "DEMO 10"}
             </span>
             <button
               className="icon-button"
@@ -2410,14 +2529,29 @@ export default function Home() {
           </div>
 
           <div className="toolbar">
-            <label className="search-box">
-              <span>⌕</span>
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Telefon, bilgisayar, konsol ara"
-              />
-            </label>
+            <div className="search-composer">
+              <label className="search-box">
+                <span>⌕</span>
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Telefon, bilgisayar, konsol ara"
+                />
+              </label>
+              {searchSuggestions.length > 0 && (
+                <div className="search-suggestions">
+                  <small>AKILLI ÖNERİLER</small>
+                  {searchSuggestions.map((suggestion) => (
+                    <button
+                      key={suggestion}
+                      onClick={() => setQuery(suggestion.split(" · ")[0])}
+                    >
+                      <span>⌕</span>{suggestion}<b>→</b>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <button
               className={
                 filterOpen || activeFilterCount
@@ -2448,7 +2582,10 @@ export default function Home() {
                   <strong>Gelişmiş filtreler</strong>
                   <small>İlanları bütçe, konum ve süreye göre daralt</small>
                 </div>
-                <button onClick={clearFilters}>Temizle</button>
+                <div className="filter-head-actions">
+                  <button onClick={saveCurrentSearch}>Aramayı kaydet</button>
+                  <button onClick={clearFilters}>Temizle</button>
+                </div>
               </div>
               <div className="filter-grid">
                 <label>
@@ -2604,6 +2741,7 @@ export default function Home() {
           }
           disputeCount={activeDisputeCount}
           reviewableCount={reviewableCount}
+          savedSearchCount={savedSearches.length}
           onWallet={() => navigate("wallet")}
           onVerification={() => navigate("verification")}
           onTrustCenter={() => navigate("trustCenter")}
@@ -2612,6 +2750,8 @@ export default function Home() {
           onBids={() => navigate("bids")}
           onOrders={() => navigate("orders")}
           onSellerCenter={() => navigate("sellerCenter")}
+          onSellerAnalytics={() => navigate("sellerAnalytics")}
+          onSavedSearches={() => navigate("savedSearches")}
           onFollowing={() => navigate("following")}
           onReminders={() => navigate("reminders")}
           onCoupons={() => navigate("coupons")}
@@ -2658,6 +2798,27 @@ export default function Home() {
           now={now}
           onOpen={openAuction}
           onSell={() => navigate("sell")}
+          onAnalytics={() => navigate("sellerAnalytics")}
+        />
+      )}
+      {screen === "savedSearches" && (
+        <SavedSearchesScreen
+          items={savedSearches}
+          auctions={auctions}
+          now={now}
+          onApply={applySavedSearch}
+          onToggleNotify={toggleSavedSearchNotification}
+          onDelete={deleteSavedSearch}
+        />
+      )}
+      {screen === "sellerAnalytics" && (
+        <SellerAnalyticsScreen
+          currentUser={currentUser}
+          auctions={auctions}
+          bids={bids}
+          orders={orders}
+          now={now}
+          onOpen={openAuction}
         />
       )}
       {screen === "security" && <SecurityCenter liveMode={liveMode} />}
@@ -2869,7 +3030,9 @@ export default function Home() {
         screen !== "coupons" &&
         screen !== "auctionResults" &&
         screen !== "disputes" &&
-        screen !== "reviews" && (
+        screen !== "reviews" &&
+        screen !== "savedSearches" &&
+        screen !== "sellerAnalytics" && (
           <nav className="bottom-nav">
             <NavButton
               icon="⌂"
@@ -2920,7 +3083,9 @@ export default function Home() {
         screen === "coupons" ||
         screen === "auctionResults" ||
         screen === "disputes" ||
-        screen === "reviews") && (
+        screen === "reviews" ||
+        screen === "savedSearches" ||
+        screen === "sellerAnalytics") && (
         <button
           className="floating-back"
           onClick={() =>
@@ -3529,6 +3694,75 @@ function SellForm({
   const [city, setCity] = useState(currentUser.city);
   const [shipping, setShipping] = useState("Param Güvende Kargo");
   const [image, setImage] = useState("");
+  const [templateKey, setTemplateKey] = useState("none");
+
+  const templates: Record<
+    string,
+    {
+      title: string;
+      category: string;
+      condition: Condition;
+      description: string;
+      price: number;
+      reserve: number;
+      increment: number;
+    }
+  > = {
+    phone: {
+      title: "iPhone 15 Pro 256 GB · Kutulu",
+      category: "Telefon",
+      condition: "Çok iyi",
+      description:
+        "Cihazın pil sağlığı, garanti durumu, kutu ve aksesuar bilgileri eksiksizdir. Kozmetik kusurlar fotoğraflarda gösterilmiştir. IMEI ve fatura bilgileri doğrulama sonrası paylaşılır.",
+      price: 22000,
+      reserve: 28500,
+      increment: 250,
+    },
+    laptop: {
+      title: "MacBook Air M2 · Faturalı",
+      category: "Bilgisayar",
+      condition: "Çok iyi",
+      description:
+        "İşlemci, RAM, depolama, pil döngüsü ve garanti bilgileri ilanda belirtilmiştir. Ekran, klavye ve kasa durumu fotoğraflarda ayrıntılı gösterilir.",
+      price: 18000,
+      reserve: 24000,
+      increment: 250,
+    },
+    console: {
+      title: "PlayStation 5 Slim · 2 Kol",
+      category: "Oyun",
+      condition: "İyi",
+      description:
+        "Konsol, iki kontrolcü, güç ve HDMI kablosuyla teslim edilir. Fan sesi, portlar ve kontrolcü analogları test edilmiştir.",
+      price: 12500,
+      reserve: 16500,
+      increment: 200,
+    },
+    home: {
+      title: "Dyson V15 · Tüm Aparatlarıyla",
+      category: "Ev & Yaşam",
+      condition: "İyi",
+      description:
+        "Motor, batarya, filtre ve başlıklar test edilmiştir. Kullanım izleri ve aparat listesi fotoğraflarda gösterilir.",
+      price: 7000,
+      reserve: 9500,
+      increment: 100,
+    },
+  };
+
+  function applyTemplate(key: string) {
+    setTemplateKey(key);
+    if (key === "none") return;
+    const template = templates[key];
+    if (!template) return;
+    setTitle(template.title);
+    setCategory(template.category);
+    setCondition(template.condition);
+    setDescription(template.description);
+    setPrice(template.price);
+    setReservePrice(template.reserve);
+    setMinIncrement(template.increment);
+  }
 
   function handlePhoto(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -3591,6 +3825,22 @@ function SellForm({
               title="Ürünü tanıtalım"
               text="Net bilgiler daha fazla ve daha güvenli teklif getirir."
             />
+            <div className="template-picker">
+              <div>
+                <span>✨</span>
+                <div>
+                  <strong>Akıllı ilan şablonu</strong>
+                  <small>Kategoriye uygun başlık, açıklama ve fiyat önerisi doldurur.</small>
+                </div>
+              </div>
+              <select value={templateKey} onChange={(event) => applyTemplate(event.target.value)}>
+                <option value="none">Şablon seç</option>
+                <option value="phone">Telefon · iPhone</option>
+                <option value="laptop">Bilgisayar · MacBook</option>
+                <option value="console">Oyun · PlayStation</option>
+                <option value="home">Ev & Yaşam · Dyson</option>
+              </select>
+            </div>
             <label
               className={image ? "photo-upload has-photo" : "photo-upload"}
             >
@@ -4105,6 +4355,7 @@ function Profile({
   couponCount,
   disputeCount,
   reviewableCount,
+  savedSearchCount,
   onWallet,
   onVerification,
   onTrustCenter,
@@ -4113,6 +4364,8 @@ function Profile({
   onBids,
   onOrders,
   onSellerCenter,
+  onSellerAnalytics,
+  onSavedSearches,
   onFollowing,
   onReminders,
   onCoupons,
@@ -4136,6 +4389,7 @@ function Profile({
   couponCount: number;
   disputeCount: number;
   reviewableCount: number;
+  savedSearchCount: number;
   onWallet: () => void;
   onVerification: () => void;
   onTrustCenter: () => void;
@@ -4144,6 +4398,8 @@ function Profile({
   onBids: () => void;
   onOrders: () => void;
   onSellerCenter: () => void;
+  onSellerAnalytics: () => void;
+  onSavedSearches: () => void;
   onFollowing: () => void;
   onReminders: () => void;
   onCoupons: () => void;
@@ -4207,6 +4463,16 @@ function Profile({
         </button>
         <button onClick={onSellerCenter}>
           <span>▤</span>Satış Merkezi<b>›</b>
+        </button>
+        <button onClick={onSellerAnalytics}>
+          <span>📈</span>Satıcı performans analizi<b>›</b>
+        </button>
+        <button onClick={onSavedSearches}>
+          <span>🔔</span>Kaydedilmiş aramalar
+          {savedSearchCount > 0 && (
+            <em className="menu-badge neutral">{savedSearchCount}</em>
+          )}
+          <b>›</b>
         </button>
         <button onClick={onOrders}>
           <span>📦</span>Siparişlerim<b>›</b>
@@ -4915,6 +5181,7 @@ function SellerCenter({
   now,
   onOpen,
   onSell,
+  onAnalytics,
 }: {
   currentUser: AppUser;
   auctions: Auction[];
@@ -4922,6 +5189,7 @@ function SellerCenter({
   now: number;
   onOpen: (id: string) => void;
   onSell: () => void;
+  onAnalytics: () => void;
 }) {
   const mine = auctions.filter(
     (auction) => auction.sellerId === currentUser.id,
@@ -4938,7 +5206,10 @@ function SellerCenter({
           <h1>Satış Merkezi</h1>
           <p>İlan performansı, sipariş ve tahmini kazançların tek ekranda.</p>
         </div>
-        <button onClick={onSell}>＋ Yeni ilan</button>
+        <div className="seller-hero-actions">
+          <button className="ghost" onClick={onAnalytics}>📈 Detaylı analiz</button>
+          <button onClick={onSell}>＋ Yeni ilan</button>
+        </div>
       </div>
       <div className="seller-metrics">
         <div>
@@ -5959,6 +6230,154 @@ function AdminPanel({
               <span>!</span> Kargo API entegrasyonu bekliyor
             </p>
           </div>
+        </aside>
+      </div>
+    </section>
+  );
+}
+
+
+function SavedSearchesScreen({
+  items,
+  auctions,
+  now,
+  onApply,
+  onToggleNotify,
+  onDelete,
+}: {
+  items: SavedSearch[];
+  auctions: Auction[];
+  now: number;
+  onApply: (item: SavedSearch) => void;
+  onToggleNotify: (id: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  function matchCount(item: SavedSearch) {
+    return auctions.filter((auction) => {
+      if (isEnded(auction, now)) return false;
+      const haystack = `${auction.title} ${auction.category} ${auction.city}`.toLocaleLowerCase("tr");
+      return (
+        (!item.query || haystack.includes(item.query.toLocaleLowerCase("tr"))) &&
+        (item.category === "Tümü" || auction.category === item.category) &&
+        (item.condition === "Tümü" || auction.condition === item.condition) &&
+        (item.city === "Tümü" || auction.city === item.city) &&
+        (!item.maxPrice || auction.currentBid <= item.maxPrice)
+      );
+    }).length;
+  }
+
+  return (
+    <section className="page standalone-page">
+      <ScreenTitle
+        title="Kaydedilmiş aramalar"
+        text="Yeni ilanları kaçırmamak için arama ve filtrelerini bildirimli takip et"
+      />
+      <div className="saved-search-summary">
+        <div><span>Aktif arama</span><strong>{items.length}</strong></div>
+        <div><span>Bildirim açık</span><strong>{items.filter((item) => item.notify).length}</strong></div>
+        <div><span>Yeni eşleşme</span><strong>{items.reduce((sum, item) => sum + matchCount(item), 0)}</strong></div>
+      </div>
+      <div className="saved-search-list">
+        {items.map((item) => (
+          <article key={item.id}>
+            <div className="saved-search-icon">⌕</div>
+            <div className="saved-search-copy">
+              <small>{dateTime.format(new Date(item.createdAt))}</small>
+              <strong>{item.name}</strong>
+              <p>
+                {[
+                  item.condition !== "Tümü" ? item.condition : "",
+                  item.endingFilter !== "Tümü" ? `${item.endingFilter} saat içinde` : "",
+                ].filter(Boolean).join(" · ") || "Genel arama"}
+              </p>
+              <span>{matchCount(item)} aktif ilan eşleşiyor</span>
+            </div>
+            <div className="saved-search-actions">
+              <button className={item.notify ? "notify active" : "notify"} onClick={() => onToggleNotify(item.id)}>
+                {item.notify ? "🔔 Bildirim açık" : "🔕 Bildirim kapalı"}
+              </button>
+              <button onClick={() => onApply(item)}>Sonuçları gör</button>
+              <button className="danger" onClick={() => onDelete(item.id)}>Sil</button>
+            </div>
+          </article>
+        ))}
+        {items.length === 0 && (
+          <EmptyState
+            icon="⌕"
+            title="Kaydedilmiş araman yok"
+            text="Ana sayfada filtrelerini seçip Aramayı kaydet düğmesine bas."
+          />
+        )}
+      </div>
+    </section>
+  );
+}
+
+function SellerAnalyticsScreen({
+  currentUser,
+  auctions,
+  bids,
+  orders,
+  now,
+  onOpen,
+}: {
+  currentUser: AppUser;
+  auctions: Auction[];
+  bids: Bid[];
+  orders: Order[];
+  now: number;
+  onOpen: (id: string) => void;
+}) {
+  const mine = auctions.filter((auction) => auction.sellerId === currentUser.id);
+  const sold = orders.filter((order) => order.sellerId === currentUser.id);
+  const active = mine.filter((auction) => !isEnded(auction, now));
+  const ended = mine.filter((auction) => isEnded(auction, now));
+  const totalBids = mine.reduce((sum, auction) => sum + auction.bidCount, 0);
+  const revenue = sold.reduce((sum, order) => sum + order.amount, 0);
+  const conversion = ended.length ? Math.round((sold.length / ended.length) * 100) : 0;
+  const averageSale = sold.length ? revenue / sold.length : 0;
+  const estimatedViews = mine.reduce((sum, auction) => sum + 38 + auction.bidCount * 14, 0);
+  const maxBidCount = Math.max(1, ...mine.map((auction) => auction.bidCount));
+  const categoryStats = Array.from(new Set(mine.map((auction) => auction.category))).map((category) => ({
+    category,
+    count: mine.filter((auction) => auction.category === category).length,
+    bids: mine.filter((auction) => auction.category === category).reduce((sum, auction) => sum + auction.bidCount, 0),
+  }));
+
+  return (
+    <section className="page standalone-page">
+      <ScreenTitle
+        title="Satıcı performans analizi"
+        text="İlanlarının görüntülenme, teklif ve satış dönüşümünü incele"
+      />
+      <div className="analytics-metrics">
+        <article><span>Tahmini görüntülenme</span><strong>{estimatedViews}</strong><small>Son 30 gün · ↗ %16</small></article>
+        <article><span>Toplam teklif</span><strong>{totalBids}</strong><small>{active.length} aktif ilan</small></article>
+        <article><span>Satış dönüşümü</span><strong>%{conversion}</strong><small>{sold.length} başarılı satış</small></article>
+        <article><span>Ortalama satış</span><strong>{money.format(averageSale)}</strong><small>Net öncesi tutar</small></article>
+      </div>
+      <div className="analytics-layout">
+        <section className="analytics-card">
+          <div className="analytics-card-head"><div><strong>İlan bazında teklif gücü</strong><small>En çok ilgi gören ilanlarını karşılaştır</small></div><span>TEKLİF</span></div>
+          <div className="auction-bar-list">
+            {mine.map((auction) => (
+              <button key={auction.id} onClick={() => onOpen(auction.id)}>
+                <img src={auction.image} alt="" />
+                <div><strong>{auction.title}</strong><small>{money.format(auction.currentBid)} · {auction.bidCount} teklif</small><span><i style={{ width: `${Math.max(8, (auction.bidCount / maxBidCount) * 100)}%` }} /></span></div>
+                <b>{isEnded(auction, now) ? "Bitti" : remaining(auction.endsAt, now)}</b>
+              </button>
+            ))}
+            {mine.length === 0 && <EmptyState icon="📈" title="Analiz için ilan gerekli" text="İlk ilanını yayınladığında performans burada oluşacak." />}
+          </div>
+        </section>
+        <aside className="analytics-card category-analytics">
+          <div className="analytics-card-head"><div><strong>Kategori dağılımı</strong><small>İlan ve teklif yoğunluğu</small></div></div>
+          {categoryStats.map((item) => (
+            <div key={item.category}>
+              <span>{item.category}</span><strong>{item.count} ilan</strong><small>{item.bids} teklif</small>
+            </div>
+          ))}
+          <div className="analytics-tip"><span>💡</span><p>İlk 24 saatte teklif almayan ilanlarda başlangıç fiyatını %8–12 düşürmek görünürlüğü artırabilir.</p></div>
         </aside>
       </div>
     </section>
