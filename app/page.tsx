@@ -10,6 +10,14 @@ type PaymentStatus = "pending" | "held" | "released" | "refunded";
 type ShipmentStatus = "waiting" | "prepared" | "shipped" | "delivered" | "approved" | "disputed";
 type ModerationStatus = "pending" | "approved" | "rejected";
 
+type AutoBid = {
+  auctionId: string;
+  userId: string;
+  maxAmount: number;
+  active: boolean;
+  createdAt: string;
+};
+
 type Auction = {
   id: string;
   title: string;
@@ -31,6 +39,7 @@ type Auction = {
   shipping: string;
   paymentHold: boolean;
   createdAt: string;
+  extensionCount?: number;
 };
 
 type Bid = {
@@ -80,6 +89,7 @@ type StoredState = {
   bids: Bid[];
   notices: Notice[];
   orders: Order[];
+  autoBids: AutoBid[];
 };
 
 type AppUser = { id: string; name: string; initials: string; city: string; email?: string };
@@ -287,6 +297,8 @@ const seedReviews: Review[] = [
   { id: "r7", sellerId: DEMO_USER.id, reviewer: "B*** A.", rating: 5, text: "Ürün açıklaması çok detaylıydı, sürpriz yaşamadım.", product: "Oyun Konsolu", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 44).toISOString() },
 ];
 
+const seedAutoBids: AutoBid[] = [];
+
 const seedOrders: Order[] = [
   {
     id: "order-1",
@@ -329,18 +341,19 @@ function isEnded(auction: Auction, now: number) {
 }
 
 function safeRead(): StoredState {
-  if (typeof window === "undefined") return { auctions: seedAuctions, bids: seedBids, notices: seedNotices, orders: seedOrders };
-  const raw = window.localStorage.getItem("acikpazar-v4") || window.localStorage.getItem("acikpazar-v3");
-  if (!raw) return { auctions: seedAuctions, bids: seedBids, notices: seedNotices, orders: seedOrders };
+  if (typeof window === "undefined") return { auctions: seedAuctions, bids: seedBids, notices: seedNotices, orders: seedOrders, autoBids: seedAutoBids };
+  const raw = window.localStorage.getItem("acikpazar-v5") || window.localStorage.getItem("acikpazar-v4") || window.localStorage.getItem("acikpazar-v3");
+  if (!raw) return { auctions: seedAuctions, bids: seedBids, notices: seedNotices, orders: seedOrders, autoBids: seedAutoBids };
   try {
     const parsed = JSON.parse(raw) as StoredState;
     if (!Array.isArray(parsed.auctions) || !Array.isArray(parsed.bids) || !Array.isArray(parsed.notices)) throw new Error("invalid");
-    return { ...parsed, orders: Array.isArray(parsed.orders) ? parsed.orders : seedOrders };
+    return { ...parsed, orders: Array.isArray(parsed.orders) ? parsed.orders : seedOrders, autoBids: Array.isArray(parsed.autoBids) ? parsed.autoBids : seedAutoBids };
   } catch {
+    window.localStorage.removeItem("acikpazar-v5");
     window.localStorage.removeItem("acikpazar-v4");
     window.localStorage.removeItem("acikpazar-v3");
     window.localStorage.removeItem("acikpazar-moderation-v4");
-    return { auctions: seedAuctions, bids: seedBids, notices: seedNotices, orders: seedOrders };
+    return { auctions: seedAuctions, bids: seedBids, notices: seedNotices, orders: seedOrders, autoBids: seedAutoBids };
   }
 }
 
@@ -384,6 +397,7 @@ export default function Home() {
   const [bids, setBids] = useState<Bid[]>(liveMode ? [] : seedBids);
   const [notices, setNotices] = useState<Notice[]>(liveMode ? [] : seedNotices);
   const [orders, setOrders] = useState<Order[]>(liveMode ? [] : seedOrders);
+  const [autoBids, setAutoBids] = useState<AutoBid[]>(seedAutoBids);
   const [selectedId, setSelectedId] = useState(liveMode ? "" : "1");
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("Tümü");
@@ -507,6 +521,7 @@ export default function Home() {
       setBids(stored.bids);
       setNotices(stored.notices);
       setOrders(stored.orders);
+      setAutoBids(stored.autoBids);
       setHydrated(true);
       return () => window.clearInterval(interval);
     }
@@ -543,8 +558,8 @@ export default function Home() {
 
   useEffect(() => {
     if (!hydrated || supabase) return;
-    window.localStorage.setItem("acikpazar-v4", JSON.stringify({ auctions, bids, notices, orders }));
-  }, [auctions, bids, notices, orders, hydrated, supabase]);
+    window.localStorage.setItem("acikpazar-v5", JSON.stringify({ auctions, bids, notices, orders, autoBids }));
+  }, [auctions, bids, notices, orders, autoBids, hydrated, supabase]);
 
   useEffect(() => {
     if (supabase || typeof window === "undefined") return;
@@ -662,9 +677,62 @@ export default function Home() {
     const updatedEnd = extended ? new Date(now + 120_000).toISOString() : auction.endsAt;
     const newBid: Bid = { id: String(Date.now()), auctionId: id, userId: currentUser.id, userName: currentUser.name, amount, createdAt: new Date().toISOString() };
     setBids((items) => [newBid, ...items]);
-    setAuctions((items) => items.map((item) => item.id === id ? { ...item, currentBid: amount, bidCount: item.bidCount + 1, endsAt: updatedEnd } : item));
+    setAuctions((items) => items.map((item) => item.id === id ? { ...item, currentBid: amount, bidCount: item.bidCount + 1, endsAt: updatedEnd, extensionCount: (item.extensionCount ?? 0) + (extended ? 1 : 0) } : item));
     addNotice("Teklifin alındı", `${auction.title} için ${money.format(amount)} teklif verdin.`, id);
     setToast(extended ? "Teklif alındı. Son dakika kuralıyla süre 2 dakika uzadı." : "Teklifin başarıyla alındı.");
+  }
+
+  async function setAutomaticBid(auctionId: string, maxAmount: number) {
+    const auction = auctions.find((item) => item.id === auctionId);
+    if (!auction) return;
+    const minimum = auction.currentBid + auction.minIncrement;
+    if (!Number.isFinite(maxAmount) || maxAmount < minimum) {
+      setToast(`Otomatik teklif limiti en az ${money.format(minimum)} olmalı.`);
+      return;
+    }
+
+    const autoBid: AutoBid = { auctionId, userId: currentUser.id, maxAmount, active: true, createdAt: new Date().toISOString() };
+    setAutoBids((items) => [autoBid, ...items.filter((item) => !(item.auctionId === auctionId && item.userId === currentUser.id))]);
+
+    const topBid = bids.filter((bid) => bid.auctionId === auctionId).sort((a, b) => b.amount - a.amount)[0];
+    if (topBid?.userId !== currentUser.id && !isEnded(auction, now)) {
+      await placeBid(auctionId, minimum);
+    }
+    addNotice("Otomatik teklif açıldı", `${auction.title} için gizli limitin ${money.format(maxAmount)} olarak kaydedildi.`, auctionId);
+    setToast("Otomatik teklif açıldı. Limitin diğer kullanıcılara gösterilmez.");
+  }
+
+  function disableAutomaticBid(auctionId: string) {
+    setAutoBids((items) => items.map((item) => item.auctionId === auctionId && item.userId === currentUser.id ? { ...item, active: false } : item));
+    setToast("Otomatik teklif kapatıldı.");
+  }
+
+  function simulateCompetingBid(auctionId: string) {
+    if (liveMode) return setToast("Rakip teklif simülasyonu yalnızca demo modunda kullanılabilir.");
+    const auction = auctions.find((item) => item.id === auctionId);
+    if (!auction || isEnded(auction, now)) return setToast("Bu açık artırma sona erdi.");
+    const autoBid = autoBids.find((item) => item.auctionId === auctionId && item.userId === currentUser.id && item.active);
+    const competitorAmount = auction.currentBid + auction.minIncrement;
+    const competitorBid: Bid = { id: `competitor-${Date.now()}`, auctionId, userId: "demo-rival", userName: "Rakip kullanıcı", amount: competitorAmount, createdAt: new Date().toISOString() };
+    const remainingMs = new Date(auction.endsAt).getTime() - now;
+    const extended = remainingMs <= 120_000;
+    const updatedEnd = extended ? new Date(now + 120_000).toISOString() : auction.endsAt;
+
+    if (autoBid && autoBid.maxAmount >= competitorAmount + auction.minIncrement) {
+      const responseAmount = Math.min(autoBid.maxAmount, competitorAmount + auction.minIncrement);
+      const responseBid: Bid = { id: `auto-${Date.now()}`, auctionId, userId: currentUser.id, userName: currentUser.name, amount: responseAmount, createdAt: new Date(Date.now() + 1).toISOString() };
+      setBids((items) => [responseBid, competitorBid, ...items]);
+      setAuctions((items) => items.map((item) => item.id === auctionId ? { ...item, currentBid: responseAmount, bidCount: item.bidCount + 2, endsAt: updatedEnd, extensionCount: (item.extensionCount ?? 0) + (extended ? 1 : 0) } : item));
+      addNotice("Otomatik teklif devreye girdi", `${auction.title} için sistem senin adına ${money.format(responseAmount)} teklif verdi.`, auctionId);
+      setToast("Rakip teklif geldi; otomatik teklifin minimum artışla seni yeniden öne taşıdı.");
+      return;
+    }
+
+    setBids((items) => [competitorBid, ...items]);
+    setAuctions((items) => items.map((item) => item.id === auctionId ? { ...item, currentBid: competitorAmount, bidCount: item.bidCount + 1, endsAt: updatedEnd, extensionCount: (item.extensionCount ?? 0) + (extended ? 1 : 0) } : item));
+    if (autoBid) setAutoBids((items) => items.map((item) => item.auctionId === auctionId && item.userId === currentUser.id ? { ...item, active: false } : item));
+    addNotice("Teklifin geçildi", `${auction.title} için otomatik teklif limitin aşıldı.`, auctionId);
+    setToast(autoBid ? "Rakip teklif otomatik limitini aştı." : "Rakip kullanıcı daha yüksek teklif verdi.");
   }
 
   async function createAuction(data: Omit<Auction, "id" | "bidCount" | "favorite" | "createdAt">) {
@@ -733,6 +801,8 @@ export default function Home() {
     setBids(seedBids);
     setNotices(seedNotices);
     setOrders(seedOrders);
+    setAutoBids(seedAutoBids);
+    window.localStorage.removeItem("acikpazar-v5");
     window.localStorage.removeItem("acikpazar-v4");
     window.localStorage.removeItem("acikpazar-v3");
     window.localStorage.removeItem("acikpazar-moderation-v4");
@@ -748,6 +818,7 @@ export default function Home() {
     setBids([]);
     setNotices([]);
     setOrders([]);
+    setAutoBids([]);
     setCurrentUser(DEMO_USER);
     navigate("home");
   }
@@ -781,7 +852,7 @@ export default function Home() {
             <span><strong>AçıkPazar</strong><small>Teklif ver, değerini bul</small></span>
           </button>
           <div className="topbar-actions">
-            <span className={liveMode ? "demo-pill live" : "demo-pill"}>● {liveMode ? "SUPABASE CANLI" : "DEMO 4"}</span>
+            <span className={liveMode ? "demo-pill live" : "demo-pill"}>● {liveMode ? "SUPABASE CANLI" : "DEMO 5"}</span>
             <button className="icon-button" onClick={openNotifications} aria-label="Bildirimler">🔔{unreadCount > 0 && <span className="notification-count">{unreadCount}</span>}</button>
           </div>
         </header>
@@ -838,7 +909,7 @@ export default function Home() {
       )}
 
       {screen === "sell" && <SellForm currentUser={currentUser} liveMode={liveMode} onCreate={createAuction} onCancel={() => navigate("home")} />}
-      {screen === "bids" && <BidsScreen currentUser={currentUser} bids={bids} auctions={auctions} now={now} onOpen={openAuction} />}
+      {screen === "bids" && <BidsScreen currentUser={currentUser} bids={bids} auctions={auctions} autoBids={autoBids} now={now} onOpen={openAuction} />}
       {screen === "profile" && <Profile currentUser={currentUser} liveMode={liveMode} onListings={() => navigate("myListings")} onBids={() => navigate("bids")} onOrders={() => navigate("orders")} onSellerCenter={() => navigate("sellerCenter")} onSecurity={() => navigate("security")} onSupport={() => navigate("support")} showAdmin={canAccessAdmin} onAdmin={() => navigate("admin")} onReset={resetDemo} onSignOut={signOut} />}
       {screen === "myListings" && <MyListings auctions={auctions.filter((auction) => auction.sellerId === currentUser.id)} now={now} onOpen={openAuction} />}
       {screen === "orders" && <OrdersScreen currentUser={currentUser} orders={orders} auctions={auctions} liveMode={liveMode} onOpen={openAuction} onAdvance={advanceOrder} />}
@@ -850,7 +921,7 @@ export default function Home() {
       {screen === "notifications" && <Notifications notices={notices} onOpen={(id) => id ? openAuction(id) : undefined} />}
 
       {screen === "detail" && selected && (
-        <AuctionDetail currentUser={currentUser} auction={selected} bids={selectedBids} now={now} onBack={() => navigate("home")} onFavorite={() => toggleFavorite(selected.id)} onBid={(amount) => placeBid(selected.id, amount)} onSeller={() => openSeller(selected.sellerId)} />
+        <AuctionDetail currentUser={currentUser} auction={selected} bids={selectedBids} autoBid={autoBids.find((item) => item.auctionId === selected.id && item.userId === currentUser.id)} liveMode={liveMode} now={now} onBack={() => navigate("home")} onFavorite={() => toggleFavorite(selected.id)} onBid={(amount) => placeBid(selected.id, amount)} onSetAutoBid={(limit) => setAutomaticBid(selected.id, limit)} onDisableAutoBid={() => disableAutomaticBid(selected.id)} onSimulate={() => simulateCompetingBid(selected.id)} onSeller={() => openSeller(selected.sellerId)} />
       )}
 
       {screen !== "detail" && screen !== "notifications" && screen !== "myListings" && screen !== "orders" && screen !== "sellerCenter" && screen !== "security" && screen !== "support" && screen !== "sellerProfile" && screen !== "admin" && (
@@ -949,23 +1020,27 @@ function AuctionGrid({ auctions, now, onOpen, onFavorite, empty }: { auctions: A
   );
 }
 
-function AuctionDetail({ currentUser, auction, bids, now, onBack, onFavorite, onBid, onSeller }: { currentUser: AppUser; auction: Auction; bids: Bid[]; now: number; onBack: () => void; onFavorite: () => void; onBid: (amount: number) => void; onSeller: () => void }) {
+function AuctionDetail({ currentUser, auction, bids, autoBid, liveMode, now, onBack, onFavorite, onBid, onSetAutoBid, onDisableAutoBid, onSimulate, onSeller }: { currentUser: AppUser; auction: Auction; bids: Bid[]; autoBid?: AutoBid; liveMode: boolean; now: number; onBack: () => void; onFavorite: () => void; onBid: (amount: number) => void; onSetAutoBid: (limit: number) => void; onDisableAutoBid: () => void; onSimulate: () => void; onSeller: () => void }) {
   const [amount, setAmount] = useState(auction.currentBid + auction.minIncrement);
+  const [autoLimit, setAutoLimit] = useState(autoBid?.maxAmount ?? auction.currentBid + auction.minIncrement * 5);
   const [tab, setTab] = useState<"detail" | "bids">("detail");
   const ended = isEnded(auction, now);
   const reserveMet = auction.currentBid >= auction.reservePrice;
+  const extensionZone = !ended && new Date(auction.endsAt).getTime() - now <= 120_000;
   useEffect(() => setAmount(auction.currentBid + auction.minIncrement), [auction.currentBid, auction.minIncrement]);
+  useEffect(() => setAutoLimit(autoBid?.maxAmount ?? auction.currentBid + auction.minIncrement * 5), [autoBid?.maxAmount, auction.currentBid, auction.minIncrement]);
 
   return (
     <section className="detail-page">
       <div className="detail-actions"><button onClick={onBack}>←</button><button onClick={onFavorite}>{auction.favorite ? "♥" : "♡"}</button></div>
-      <div className="detail-visual"><img src={auction.image} alt={auction.title} /><div className={ended ? "detail-timer ended" : "detail-timer"}><small>{ended ? "Durum" : "Kalan süre"}</small><strong>{ended ? "Sona erdi" : remaining(auction.endsAt, now)}</strong></div></div>
+      <div className="detail-visual"><img src={auction.image} alt={auction.title} /><div className={ended ? "detail-timer ended" : extensionZone ? "detail-timer extension" : "detail-timer"}><small>{ended ? "Durum" : extensionZone ? "Uzatma bölgesi" : "Kalan süre"}</small><strong>{ended ? "Sona erdi" : remaining(auction.endsAt, now)}</strong></div></div>
       <div className="detail-content">
         <div className="detail-topline"><span className="category-label">{auction.category}</span><span>İlan #{auction.id}</span></div>
         <h1>{auction.title}</h1>
         <button className="seller-row seller-link" onClick={onSeller}><span className="avatar">{auction.seller.charAt(0)}</span><div><strong>{auction.seller} {auction.verified && <em>✓</em>}</strong><small>{auction.city} · ★ {sellerScore(auction.sellerId).rating.toFixed(1)} · {sellerScore(auction.sellerId).count} değerlendirme</small></div><span className="condition">{auction.condition} ›</span></button>
 
         <div className="bid-summary"><div><small>Güncel teklif</small><strong>{money.format(auction.currentBid)}</strong></div><div><small>Teklif sayısı</small><strong>{auction.bidCount}</strong></div></div>
+        {extensionZone && <div className="extension-alert"><span>⏱</span><div><strong>Son dakika koruması aktif</strong><small>Şimdi gelen her geçerli teklif süreyi yeniden 2 dakikaya çıkarır.</small></div><b>{auction.extensionCount ?? 0} uzatma</b></div>}
         <div className={reserveMet ? "reserve-status met" : "reserve-status"}><span>{reserveMet ? "✓" : "○"}</span><div><strong>{reserveMet ? "Gizli taban fiyat aşıldı" : "Gizli taban fiyat henüz aşılmadı"}</strong><small>Satış yalnızca satıcının belirlediği minimum değer aşılırsa tamamlanır.</small></div></div>
         <div className="trust-strip"><span>🛡️ Korumalı ödeme</span><span>📦 {auction.shipping}</span><span>✓ Doğrulanmış ilan</span></div>
 
@@ -975,6 +1050,13 @@ function AuctionDetail({ currentUser, auction, bids, now, onBack, onFavorite, on
         ) : (
           <div className="bid-history">{bids.length ? bids.map((bid, index) => <div key={bid.id}><span className="rank">{index + 1}</span><div><strong>{bid.userId === currentUser.id ? "Sen" : bid.userName}</strong><small>{dateTime.format(new Date(bid.createdAt))}</small></div><b>{money.format(bid.amount)}</b></div>) : <p>Henüz teklif verilmedi.</p>}</div>
         )}
+
+        <div className={autoBid?.active ? "auto-bid-card active" : "auto-bid-card"}>
+          <div className="auto-bid-head"><span>⚡</span><div><strong>Otomatik teklif</strong><small>Sistem, gizli limitine kadar yalnızca gereken minimum artışı verir.</small></div>{autoBid?.active && <b>AKTİF</b>}</div>
+          {autoBid?.active ? <div className="auto-bid-active"><div><small>Gizli limitin</small><strong>{money.format(autoBid.maxAmount)}</strong></div><button onClick={onDisableAutoBid}>Kapat</button></div> : <div className="auto-bid-form"><div className="bid-input"><span>₺</span><input type="number" value={autoLimit} min={auction.currentBid + auction.minIncrement} onChange={(e) => setAutoLimit(Number(e.target.value))} /></div><button disabled={ended} onClick={() => onSetAutoBid(autoLimit)}>Otomatik teklifi aç</button></div>}
+          {!liveMode && autoBid?.active && <button className="simulation-button" onClick={onSimulate}>Rakip teklifini test et</button>}
+          <small>Limitin satıcıya ve diğer teklif verenlere gösterilmez.</small>
+        </div>
 
         <div className="bid-box">
           <label>Teklif tutarın</label>
@@ -1066,19 +1148,28 @@ function SellForm({ currentUser, liveMode, onCreate, onCancel }: { currentUser: 
   );
 }
 
-function BidsScreen({ currentUser, bids, auctions, now, onOpen }: { currentUser: AppUser; bids: Bid[]; auctions: Auction[]; now: number; onOpen: (id: string) => void }) {
+function BidsScreen({ currentUser, bids, auctions, autoBids, now, onOpen }: { currentUser: AppUser; bids: Bid[]; auctions: Auction[]; autoBids: AutoBid[]; now: number; onOpen: (id: string) => void }) {
+  const [tab, setTab] = useState<"ongoing" | "won" | "lost">("ongoing");
   const userBids = bids.filter((bid) => bid.userId === currentUser.id);
   const auctionIds = [...new Set(userBids.map((bid) => bid.auctionId))];
+  const records = auctionIds.flatMap((id) => {
+    const auction = auctions.find((item) => item.id === id);
+    if (!auction) return [];
+    const myBid = Math.max(...userBids.filter((bid) => bid.auctionId === id).map((bid) => bid.amount));
+    const winning = myBid >= auction.currentBid;
+    const ended = isEnded(auction, now);
+    const state: "ongoing" | "won" | "lost" = ended ? (winning ? "won" : "lost") : "ongoing";
+    const automatic = autoBids.find((item) => item.auctionId === id && item.userId === currentUser.id && item.active);
+    return [{ auction, myBid, winning, ended, state, automatic }];
+  });
+  const filteredRecords = records.filter((record) => record.state === tab);
+  const counts = { ongoing: records.filter((record) => record.state === "ongoing").length, won: records.filter((record) => record.state === "won").length, lost: records.filter((record) => record.state === "lost").length };
+
   return (
-    <section className="page"><ScreenTitle title="Tekliflerim" text="Katıldığın açık artırmaları tek yerden takip et" />
-      <div className="tracking-list">{auctionIds.map((id) => {
-        const auction = auctions.find((item) => item.id === id);
-        if (!auction) return null;
-        const myBid = Math.max(...userBids.filter((bid) => bid.auctionId === id).map((bid) => bid.amount));
-        const winning = myBid >= auction.currentBid;
-        const ended = isEnded(auction, now);
-        return <button key={id} onClick={() => onOpen(id)}><img src={auction.image} alt="" /><div><h3>{auction.title}</h3><small>Senin teklifin: {money.format(myBid)}</small><span>{ended ? "Açık artırma sona erdi" : `${remaining(auction.endsAt, now)} kaldı`}</span></div><b className={winning ? "status winning" : "status outbid"}>{ended ? (winning ? "Kazandın" : "Sonuçlandı") : (winning ? "Öndesin" : "Teklifin geçildi")}</b></button>;
-      })}{auctionIds.length === 0 && <EmptyState icon="⇄" title="Henüz teklifin yok" text="Bir açık artırmaya katıldığında burada görünecek." />}</div>
+    <section className="page"><ScreenTitle title="Teklif Merkezi" text="Devam eden, kazandığın ve kaybettiğin açık artırmaları takip et" />
+      <div className="bid-center-metrics"><div><span>Devam eden</span><strong>{counts.ongoing}</strong></div><div><span>Kazandığın</span><strong>{counts.won}</strong></div><div><span>Otomatik teklif</span><strong>{autoBids.filter((item) => item.userId === currentUser.id && item.active).length}</strong></div></div>
+      <div className="segmented bid-tabs"><button className={tab === "ongoing" ? "active" : ""} onClick={() => setTab("ongoing")}>Devam Eden ({counts.ongoing})</button><button className={tab === "won" ? "active" : ""} onClick={() => setTab("won")}>Kazandıklarım ({counts.won})</button><button className={tab === "lost" ? "active" : ""} onClick={() => setTab("lost")}>Kaybettiklerim ({counts.lost})</button></div>
+      <div className="tracking-list">{filteredRecords.map(({ auction, myBid, winning, ended, automatic }) => <button key={auction.id} onClick={() => onOpen(auction.id)}><img src={auction.image} alt="" /><div><h3>{auction.title}</h3><small>Senin teklifin: {money.format(myBid)}</small>{automatic && <em className="auto-bid-chip">⚡ Limit {money.format(automatic.maxAmount)}</em>}<span>{ended ? "Açık artırma sona erdi" : `${remaining(auction.endsAt, now)} kaldı`}</span></div><b className={winning ? "status winning" : "status outbid"}>{ended ? (winning ? "Kazandın" : "Kaybettin") : (winning ? "Öndesin" : "Teklifin geçildi")}</b></button>)}{filteredRecords.length === 0 && <EmptyState icon={tab === "ongoing" ? "⇄" : tab === "won" ? "🏆" : "○"} title={tab === "ongoing" ? "Devam eden teklifin yok" : tab === "won" ? "Henüz kazandığın ilan yok" : "Kaybettiğin ilan yok"} text={tab === "ongoing" ? "Bir açık artırmaya katıldığında burada görünecek." : "Sonuçlanan açık artırmalar bu bölümde ayrılacak."} />}</div>
     </section>
   );
 }

@@ -1,28 +1,16 @@
-# AçıkPazar MVP — Supabase Canlı Sürüm
+# AçıkPazar v5
 
-Bu paket GitHub → Vercel → Supabase canlı yayın akışı için hazırlanmıştır. Vercel üzerinde `NEXT_PUBLIC_SUPABASE_URL` ve `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` değişkenleri tanımlandığında gerçek kullanıcı, ilan, teklif, favori, bildirim ve fotoğraf verileriyle çalışır.
+Bu sürüm, teklif deneyimini güçlendirir.
 
-## Hızlı başlangıç
+## Yeni özellikler
 
-```bash
-npm install
-npm run dev
-```
+- Gizli limitli otomatik teklif
+- Demo modunda rakip teklif testi
+- Son 2 dakika uzatma bölgesi göstergesi
+- Uzatma sayacı
+- Teklif Merkezi: Devam Eden / Kazandıklarım / Kaybettiklerim
+- Otomatik teklif limitinin Teklif Merkezi'nde görünmesi
 
-Tarayıcı: `http://localhost:3000`
+## GitHub güncellemesi
 
-Supabase bağlantısı için `SUPABASE-KURULUM.md` dosyasındaki adımları uygula.
-
-## Üretim derlemesi
-
-```bash
-npm run build
-npm start
-```
-
-## Önemli dosyalar
-
-- `app/page.tsx`: uygulama ve Supabase akışları
-- `lib/supabase.ts`: tarayıcı Supabase istemcisi
-- `supabase/schema.sql`: veritabanı, RLS, RPC, Storage ve Realtime kurulumu
-- `.env.example`: gerekli çevre değişkenleri örneği
+Mevcut projede yalnızca `app/page.tsx` ve `app/globals.css` dosyalarını aynı isimli eski dosyaların üzerine yükleyin. Vercel yeni commit sonrasında otomatik dağıtım başlatır.
