@@ -1,32 +1,394 @@
-{
-  "compilerOptions": {
-    "target": "ES2017",
-    "lib": ["dom", "dom.iterable", "esnext"],
-    "allowJs": false,
-    "skipLibCheck": true,
-    "strict": true,
-    "noEmit": true,
-    "esModuleInterop": true,
-    "module": "esnext",
-    "moduleResolution": "bundler",
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "jsx": "preserve",
-    "incremental": true,
-    "plugins": [
-      {
-        "name": "next"
-      }
-    ],
-    "paths": {
-      "@/*": ["./*"]
-    }
-  },
-  "include": [
-    "next-env.d.ts",
-    "**/*.ts",
-    "**/*.tsx",
-    ".next/types/**/*.ts"
-  ],
-  "exclude": ["node_modules"]
-}
+export type Screen =
+  | "home"
+  | "favorites"
+  | "sell"
+  | "bids"
+  | "profile"
+  | "detail"
+  | "notifications"
+  | "myListings"
+  | "orders"
+  | "sellerCenter"
+  | "security"
+  | "support"
+  | "sellerProfile"
+  | "admin"
+  | "messages"
+  | "checkout"
+  | "shipment"
+  | "wallet"
+  | "verification"
+  | "trustCenter"
+  | "following"
+  | "reminders"
+  | "coupons"
+  | "auctionResults"
+  | "disputes"
+  | "reviews"
+  | "savedSearches"
+  | "sellerAnalytics"
+  | "promotions"
+  | "compare"
+  | "listingManager"
+  | "liveLobby"
+  | "liveRoom"
+  | "storefront"
+  | "storeManager"
+  | "membership"
+  | "businessAccount"
+  | "financeReports"
+  | "addresses"
+  | "shippingOperations"
+  | "operationsCenter"
+  | "liveSystem";
+export type Condition = "Sıfır" | "Çok iyi" | "İyi" | "Orta";
+export type PaymentStatus = "pending" | "held" | "released" | "refunded";
+export type ShipmentStatus =
+  "waiting" | "prepared" | "shipped" | "delivered" | "approved" | "disputed";
+export type ModerationStatus = "pending" | "approved" | "rejected";
+export type DisputeStatus =
+  | "open"
+  | "reviewing"
+  | "resolved_buyer"
+  | "resolved_seller";
+
+export type Dispute = {
+  id: string;
+  orderId: string;
+  openedBy: string;
+  reason: string;
+  details: string;
+  status: DisputeStatus;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AutoBid = {
+  auctionId: string;
+  userId: string;
+  maxAmount: number;
+  active: boolean;
+  createdAt: string;
+};
+
+export type Auction = {
+  id: string;
+  title: string;
+  category: string;
+  image: string;
+  currentBid: number;
+  startingBid: number;
+  bidCount: number;
+  endsAt: string;
+  city: string;
+  seller: string;
+  sellerId: string;
+  verified: boolean;
+  condition: Condition;
+  description: string;
+  minIncrement: number;
+  reservePrice: number;
+  favorite?: boolean;
+  shipping: string;
+  paymentHold: boolean;
+  createdAt: string;
+  extensionCount?: number;
+};
+
+export type Bid = {
+  id: string;
+  auctionId: string;
+  userId: string;
+  userName: string;
+  amount: number;
+  createdAt: string;
+};
+
+export type Notice = {
+  id: string;
+  title: string;
+  text: string;
+  createdAt: string;
+  read: boolean;
+  auctionId?: string;
+};
+
+export type Order = {
+  id: string;
+  auctionId: string;
+  buyerId: string;
+  sellerId: string;
+  amount: number;
+  paymentStatus: PaymentStatus;
+  shipmentStatus: ShipmentStatus;
+  carrier?: string;
+  trackingNumber?: string;
+  deliveryAddressId?: string;
+  updatedAt: string;
+};
+
+export type Review = {
+  id: string;
+  orderId?: string;
+  sellerId: string;
+  reviewer: string;
+  rating: number;
+  text: string;
+  product: string;
+  createdAt: string;
+};
+
+export type ChatMessage = {
+  id: string;
+  conversationId: string;
+  auctionId: string;
+  senderId: string;
+  senderName: string;
+  body: string;
+  createdAt: string;
+  read: boolean;
+};
+
+export type WalletTransaction = {
+  id: string;
+  type: "deposit" | "sale" | "purchase" | "withdrawal" | "refund" | "hold";
+  title: string;
+  amount: number;
+  createdAt: string;
+  status: "completed" | "pending";
+  orderId?: string;
+};
+
+export type VerificationState = {
+  phone: boolean;
+  identity: boolean;
+  bank: boolean;
+  twoFactor: boolean;
+};
+
+export type ReminderKind = "ending" | "price";
+
+export type AuctionReminder = {
+  auctionId: string;
+  kind: ReminderKind;
+  targetPrice?: number;
+  active: boolean;
+  triggered: boolean;
+  createdAt: string;
+};
+
+export type Coupon = {
+  code: string;
+  title: string;
+  type: "fixed" | "percent";
+  value: number;
+  minSpend: number;
+  maxDiscount?: number;
+  expiresAt: string;
+  used: boolean;
+};
+
+export type SavedSearch = {
+  id: string;
+  name: string;
+  query: string;
+  category: string;
+  condition: string;
+  city: string;
+  maxPrice: number;
+  endingFilter: string;
+  notify: boolean;
+  createdAt: string;
+};
+
+export type Promotion = {
+  auctionId: string;
+  plan: "24h" | "3d" | "7d";
+  price: number;
+  expiresAt: string;
+  impressions: number;
+  clicks: number;
+  createdAt: string;
+};
+
+export type StoreProfile = {
+  sellerId: string;
+  name: string;
+  tagline: string;
+  about: string;
+  featuredAuctionIds: string[];
+  followerDiscount: number;
+  campaignActive: boolean;
+  updatedAt: string;
+};
+
+export type MembershipTier = "free" | "plus" | "pro";
+
+export type MembershipState = {
+  tier: MembershipTier;
+  autoRenew: boolean;
+  startedAt?: string;
+  renewAt?: string;
+};
+
+export type BusinessVerificationStatus = "not_started" | "pending" | "verified";
+
+export type BusinessAccount = {
+  accountType: "individual" | "company";
+  companyTitle: string;
+  taxNumber: string;
+  taxOffice: string;
+  mersisNumber: string;
+  invoiceEmail: string;
+  address: string;
+  verificationStatus: BusinessVerificationStatus;
+  updatedAt?: string;
+};
+
+export type InvoiceRecord = {
+  id: string;
+  period: string;
+  grossSales: number;
+  commission: number;
+  vat: number;
+  netPayout: number;
+  invoiceNo: string;
+  status: "issued" | "pending";
+  createdAt: string;
+};
+
+export type AddressRecord = {
+  id: string;
+  label: string;
+  fullName: string;
+  phone: string;
+  city: string;
+  district: string;
+  neighborhood: string;
+  addressLine: string;
+  postalCode: string;
+  isDefault: boolean;
+  isBilling: boolean;
+};
+
+export type ShipmentLabel = {
+  id: string;
+  orderId: string;
+  carrier: string;
+  trackingNumber: string;
+  packageType: "small" | "medium" | "large";
+  desi: number;
+  price: number;
+  estimatedDelivery: string;
+  status: "created" | "printed" | "handed_over";
+  createdAt: string;
+};
+
+export type AuditSeverity = "info" | "warning" | "critical";
+
+export type AuditLog = {
+  id: string;
+  actor: string;
+  action: string;
+  target: string;
+  details: string;
+  severity: AuditSeverity;
+  createdAt: string;
+};
+
+export type UserCaseStatus = "open" | "reviewing" | "resolved";
+
+export type UserCase = {
+  id: string;
+  userId: string;
+  userName: string;
+  reason: string;
+  source: string;
+  riskScore: number;
+  status: UserCaseStatus;
+  blocked: boolean;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type SystemSettings = {
+  maintenanceMode: boolean;
+  newListingsEnabled: boolean;
+  paymentsEnabled: boolean;
+  autoModeration: boolean;
+  lastBackup: string;
+};
+
+export type SystemToggleKey =
+  | "maintenanceMode"
+  | "newListingsEnabled"
+  | "paymentsEnabled"
+  | "autoModeration";
+
+export type AuctionQuestion = {
+  id: string;
+  auctionId: string;
+  userId: string;
+  userName: string;
+  question: string;
+  answer?: string;
+  answeredAt?: string;
+  createdAt: string;
+};
+
+export type AuctionDraft = {
+  id: string;
+  title: string;
+  category: string;
+  image: string;
+  startingBid: number;
+  reservePrice: number;
+  minIncrement: number;
+  durationHours: number;
+  city: string;
+  condition: Condition;
+  description: string;
+  shipping: string;
+  savedAt: string;
+};
+
+export type StoredState = {
+  auctions: Auction[];
+  bids: Bid[];
+  notices: Notice[];
+  orders: Order[];
+  autoBids: AutoBid[];
+  messages: ChatMessage[];
+  walletBalance: number;
+  walletTransactions: WalletTransaction[];
+  verification: VerificationState;
+  followedSellers: string[];
+  reminders: AuctionReminder[];
+  coupons: Coupon[];
+  reviews: Review[];
+  disputes: Dispute[];
+  finalizedAuctionIds: string[];
+  savedSearches: SavedSearch[];
+  questions: AuctionQuestion[];
+  promotions: Promotion[];
+  drafts: AuctionDraft[];
+  autoRelistIds: string[];
+  storefronts: StoreProfile[];
+  membership: MembershipState;
+  businessAccount: BusinessAccount;
+  invoiceRecords: InvoiceRecord[];
+  addresses: AddressRecord[];
+  shipmentLabels: ShipmentLabel[];
+  auditLogs: AuditLog[];
+  userCases: UserCase[];
+  systemSettings: SystemSettings;
+};
+
+export type AppUser = {
+  id: string;
+  name: string;
+  initials: string;
+  city: string;
+  email?: string;
+};

@@ -1,10 +1,7 @@
-{
-  "name": "AçıkPazar",
-  "short_name": "AçıkPazar",
-  "description": "Güvenli ikinci el açık artırma uygulaması",
-  "start_url": "/",
-  "display": "standalone",
-  "background_color": "#f4f6fb",
-  "theme_color": "#111827",
-  "icons": []
-}
+export const BRAND = {
+  name: "KapışKapış",
+  tagline: "Beğendiysen bekleme, KapışKapış kap!",
+  description: "Türkiye için güvenli ikinci el açık artırma pazaryeri",
+  logoPath: "/kapiskapis-logo.svg",
+  iconPath: "/kapiskapis-icon.svg",
+} as const;
