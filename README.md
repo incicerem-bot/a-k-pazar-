@@ -1,16 +1,26 @@
-# AçıkPazar v5
+# dependencies
+node_modules/
 
-Bu sürüm, teklif deneyimini güçlendirir.
+# Next.js build output
+.next/
+out/
 
-## Yeni özellikler
+# local environment variables
+.env
+.env.local
+.env.*.local
 
-- Gizli limitli otomatik teklif
-- Demo modunda rakip teklif testi
-- Son 2 dakika uzatma bölgesi göstergesi
-- Uzatma sayacı
-- Teklif Merkezi: Devam Eden / Kazandıklarım / Kaybettiklerim
-- Otomatik teklif limitinin Teklif Merkezi'nde görünmesi
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
-## GitHub güncellemesi
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
 
-Mevcut projede yalnızca `app/page.tsx` ve `app/globals.css` dosyalarını aynı isimli eski dosyaların üzerine yükleyin. Vercel yeni commit sonrasında otomatik dağıtım başlatır.
+# Vercel local metadata
+.vercel/
